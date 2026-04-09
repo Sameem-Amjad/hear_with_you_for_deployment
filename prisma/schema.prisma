@@ -1,0 +1,869 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+model User {
+  id                String       @id @default(uuid())
+  firebaseUid       String?      @unique
+  username          String?      @unique
+  name              String?
+  email             String?      @unique
+  phone             String?      @unique
+  passwordHash      String?
+  profilePicture    String?
+  provider          AuthProvider @default(EMAIL)
+  isActive          Boolean      @default(true)
+  isDeleted         Boolean      @default(false)
+  isProfileComplete Boolean      @default(false)
+  lastActiveAt      DateTime?
+
+  // Subscription Management
+  subscriptionTier      SubscriptionTier   @default(FREE)
+  subscriptionStatus    SubscriptionStatus @default(INACTIVE)
+  subscriptionId        String?            @unique // Stripe subscription ID
+  customerId            String?            @unique // Stripe customer ID
+  subscriptionStartDate DateTime?
+  subscriptionEndDate   DateTime?
+  trialEndsAt           DateTime?
+  cancelAtPeriodEnd     Boolean            @default(false)
+
+  // Usage Tracking
+  storiesGeneratedThisMonth Int       @default(0)
+  voiceProfilesCount        Int       @default(0)
+  totalStoriesGenerated     Int       @default(0)
+  monthlyResetDate          DateTime?
+
+  // Credits (for pay-per-use features)
+  credits Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  activityHistory     ActivityHistory[]
+  otpRecords          OtpRecord[]
+  childProfiles       ChildProfile[]
+  voiceProfiles       VoiceProfile[]
+  stories             Story[]
+  favorites           Favorite[]
+  storyRatings        StoryRating[]
+  playHistory         PlayHistory[]
+  subscriptionHistory SubscriptionHistory[]
+  payments            Payment[]
+  usageHistory        UsageHistory[]
+  queueJobs           QueueJob[]
+  notifications       Notification[]
+  settings            UserSettings?
+  feedback            Feedback[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([firebaseUid])
+  @@index([subscriptionTier])
+  @@map("users")
+}
+
+model ActivityHistory {
+  id          String   @id @default(uuid())
+  userId      String
+  action      String
+  description String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_history")
+}
+
+model OtpRecord {
+  id         String     @id @default(uuid())
+  userId     String?
+  identifier String
+  otp        String
+  type       OtpType
+  purpose    OtpPurpose
+  isUsed     Boolean    @default(false)
+  expiresAt  DateTime
+  attempts   Int        @default(0)
+  createdAt  DateTime   @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([identifier, type, purpose])
+  @@index([expiresAt])
+  @@map("otp_records")
+}
+
+// ============================================
+// CHILD PROFILES
+// ============================================
+
+model ChildProfile {
+  id          String    @id @default(uuid())
+  userId      String
+  name        String
+  nickname    String?
+  age         Int
+  dateOfBirth DateTime?
+  gender      Gender?
+  avatar      String?
+
+  // Personalization
+  interests          String[] // Array of interests (animals, space, dinosaurs, etc.)
+  favoriteColors     String[]
+  favoriteCharacters String[]
+  readingLevel       ReadingLevel?
+
+  // Preferences
+  preferredThemes   StoryTheme[]
+  preferredDuration StoryDuration @default(MEDIUM)
+  bedtime           String? // e.g., "20:00"
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stories       Story[]
+  playHistories PlayHistory[]
+
+  @@index([userId])
+  @@index([age])
+  @@map("child_profiles")
+}
+
+// ============================================
+// VOICE PROFILES (ElevenLabs Voice Cloning)
+// ============================================
+
+model VoiceProfile {
+  id          String    @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  type        VoiceType @default(CUSTOM) // CUSTOM, PRESET
+
+  // ElevenLabs Integration
+  elevenLabsVoiceId String? @unique
+  elevenLabsModelId String? @default("eleven_multilingual_v2")
+
+  // Voice Samples
+  sampleAudioUrls String[] // S3 URLs of uploaded samples
+  sampleDuration  Int? // Total duration in seconds
+
+  // Voice Settings (ElevenLabs parameters)
+  stability       Float   @default(0.5) // 0-1
+  similarityBoost Float   @default(0.75) // 0-1
+  style           Float   @default(0.0) // 0-1
+  useSpeakerBoost Boolean @default(true)
+
+  // Voice Characteristics (for UI display)
+  gender   VoiceGender?
+  ageRange VoiceAgeRange?
+  accent   String?
+  tone     String[] // warm, energetic, calm, etc.
+
+  // Status
+  status          VoiceStatus @default(PROCESSING)
+  processingError String?     @db.Text
+
+  // Usage tracking
+  timesUsed  Int       @default(0)
+  lastUsedAt DateTime?
+
+  isActive  Boolean  @default(true)
+  isDefault Boolean  @default(false) // User's default voice
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stories Story[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([elevenLabsVoiceId])
+  @@map("voice_profiles")
+}
+
+// ============================================
+// STORIES
+// ============================================
+
+model Story {
+  id             String  @id @default(uuid())
+  userId         String
+  childProfileId String?
+  voiceProfileId String?
+
+  // Story Content
+  title       String
+  content     String  @db.Text
+  summary     String? @db.Text
+  moralLesson String?
+
+  // Metadata
+  theme             StoryTheme
+  ageGroup          AgeGroup
+  duration          StoryDuration @default(MEDIUM)
+  language          String        @default("en")
+  wordCount         Int?
+  estimatedReadTime Int? // In seconds
+
+  // AI Generation Data
+  promptUsed       String @db.Text
+  openaiModel      String @default("gpt-4")
+  openaiTokensUsed Int?
+  temperature      Float  @default(0.8)
+
+  // Personalization
+  characterNames String[] // Names used in story
+  customElements Json? // Custom story elements
+
+  // Audio Data
+  audioUrl      String?
+  audioS3Key    String?
+  audioDuration Int? // Actual audio duration in seconds
+  audioSize     Int? // File size in bytes
+  audioFormat   String?     @default("mp3")
+  audioStatus   AudioStatus @default(PENDING)
+  audioError    String?     @db.Text
+
+  // ElevenLabs TTS Data
+  elevenLabsRequestId      String?
+  elevenLabsCharactersUsed Int?
+
+  // Engagement
+  playCount       Int    @default(0)
+  completionCount Int    @default(0) // Times played to end
+  averageRating   Float?
+
+  // Flags
+  isPublic     Boolean @default(false)
+  isFeatured   Boolean @default(false)
+  isReported   Boolean @default(false)
+  reportReason String?
+
+  // Publishing
+  publishedAt  DateTime?
+  lastPlayedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
+  voiceProfile VoiceProfile? @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  favorites    Favorite[]
+  ratings      StoryRating[]
+  playHistory  PlayHistory[]
+  queueJobs    QueueJob[]
+
+  @@index([userId])
+  @@index([theme])
+  @@index([ageGroup])
+  @@index([audioStatus])
+  @@index([createdAt])
+  @@index([isPublic, isFeatured])
+  @@map("stories")
+}
+
+// ============================================
+// FAVORITES & RATINGS
+// ============================================
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  storyId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storyId])
+  @@index([userId])
+  @@index([storyId])
+  @@map("favorites")
+}
+
+model StoryRating {
+  id        String   @id @default(uuid())
+  storyId   String
+  userId    String
+  rating    Int // 1-5
+  review    String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([storyId])
+  @@index([userId])
+  @@map("story_ratings")
+}
+
+// ============================================
+// PLAY HISTORY & ANALYTICS
+// ============================================
+
+model PlayHistory {
+  id             String  @id @default(uuid())
+  storyId        String
+  userId         String
+  childProfileId String?
+
+  // Playback data
+  duration       Int? // How long they listened (seconds)
+  completionRate Float? // 0-100%
+  wasCompleted   Boolean @default(false)
+
+  // Context
+  deviceType String? // mobile, web, tablet
+  platform   String? // ios, android, web
+
+  playedAt DateTime @default(now())
+
+  story        Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
+
+  @@index([storyId])
+  @@index([userId])
+  @@index([childProfileId])
+  @@index([playedAt])
+  @@map("play_history")
+}
+
+// ============================================
+// SUBSCRIPTIONS & PAYMENTS
+// ============================================
+
+model SubscriptionHistory {
+  id     String             @id @default(uuid())
+  userId String
+  tier   SubscriptionTier
+  status SubscriptionStatus
+
+  // Stripe data
+  stripeSubscriptionId String?
+  stripePriceId        String?
+  stripeInvoiceId      String?
+
+  // Dates
+  startDate  DateTime
+  endDate    DateTime?
+  canceledAt DateTime?
+
+  // Pricing
+  amount   Float
+  currency String @default("usd")
+  interval String // month, year
+
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeSubscriptionId])
+  @@map("subscription_history")
+}
+
+model Payment {
+  id     String @id @default(uuid())
+  userId String
+
+  // Stripe data
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String?
+  stripeInvoiceId       String?
+
+  // Payment details
+  amount        Float
+  currency      String        @default("usd")
+  status        PaymentStatus
+  paymentMethod PaymentMethod
+
+  // Description
+  description String?
+  metadata    Json?
+
+  // Timestamps
+  paidAt     DateTime?
+  refundedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([stripePaymentIntentId])
+  @@map("payments")
+}
+
+// ============================================
+// USAGE TRACKING
+// ============================================
+
+model UsageHistory {
+  id           String       @id @default(uuid())
+  userId       String
+  resourceType ResourceType
+  resourceId   String?
+  action       UsageAction
+
+  // Consumption
+  creditsUsed    Int?
+  tokensUsed     Int?
+  charactersUsed Int?
+  storageUsed    Int? // Bytes
+
+  // Metadata
+  metadata  Json?
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([resourceType])
+  @@index([timestamp])
+  @@map("usage_history")
+}
+
+// ============================================
+// QUEUE JOBS (Background Processing)
+// ============================================
+
+model QueueJob {
+  id       String    @id @default(uuid())
+  jobId    String?   @unique // Bull job ID
+  queue    String // Queue name
+  type     JobType
+  status   JobStatus @default(PENDING)
+  priority Int       @default(0)
+
+  // Job Data
+  payload Json
+  result  Json?
+  error   String? @db.Text
+
+  // Retry logic
+  attempts    Int @default(0)
+  maxAttempts Int @default(3)
+
+  // Relations
+  userId  String?
+  storyId String?
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  story   Story?  @relation(fields: [storyId], references: [id], onDelete: SetNull)
+
+  // Timestamps
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([type, status])
+  @@index([userId])
+  @@index([storyId])
+  @@index([queue])
+  @@map("queue_jobs")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id      String           @id @default(uuid())
+  userId  String
+  type    NotificationType
+  title   String
+  message String           @db.Text
+
+  // Action
+  actionUrl  String?
+  actionText String?
+
+  // Data
+  data Json?
+
+  // Status
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================
+// TEMPLATES (Pre-made Story Templates)
+// ============================================
+
+model StoryTemplate {
+  id          String     @id @default(uuid())
+  name        String
+  description String?    @db.Text
+  theme       StoryTheme
+  ageGroup    AgeGroup
+
+  // Template content
+  promptTemplate String   @db.Text
+  placeholders   String[] // Variables like {childName}, {interest}
+
+  // Metadata
+  isActive   Boolean @default(true)
+  isFeatured Boolean @default(false)
+  usageCount Int     @default(0)
+
+  thumbnailUrl String?
+  tags         String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([theme])
+  @@index([ageGroup])
+  @@index([isActive, isFeatured])
+  @@map("story_templates")
+}
+
+// ============================================
+// SETTINGS
+// ============================================
+
+model UserSettings {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  // Notifications
+  emailNotifications     Boolean @default(true)
+  pushNotifications      Boolean @default(true)
+  storyReadyNotification Boolean @default(true)
+  weeklyDigest           Boolean @default(true)
+
+  // Privacy
+  profileVisibility   String  @default("private")
+  allowDataCollection Boolean @default(true)
+
+  // Preferences
+  defaultLanguage String      @default("en")
+  defaultAgeGroup AgeGroup?
+  defaultTheme    StoryTheme?
+  autoPlayNext    Boolean     @default(false)
+  downloadQuality String      @default("high")
+
+  // Parental Controls
+  contentFilter   String @default("strict")
+  maxDailyStories Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ============================================
+// FEEDBACK & SUPPORT
+// ============================================
+
+model Feedback {
+  id      String       @id @default(uuid())
+  userId  String?
+  type    FeedbackType
+  subject String
+  message String       @db.Text
+  rating  Int? // 1-5
+
+  // Context
+  page      String?
+  userAgent String?
+  metadata  Json?
+
+  // Status
+  status      String    @default("pending")
+  response    String?   @db.Text
+  respondedAt DateTime?
+  respondedBy String?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@map("feedback")
+}
+
+// ============================================
+// PROVIDER CREDENTIALS (Dashboard-managed keys)
+// ============================================
+
+model ProviderCredential {
+  id            String             @id @default(uuid())
+  provider      CredentialProvider @unique
+  encryptedKey  String             @db.Text
+  keyVersion    Int                @default(1)
+  isActive      Boolean            @default(true)
+  lastRotatedAt DateTime?
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([provider])
+  @@index([isActive])
+  @@map("provider_credentials")
+}
+
+// ============================================
+// STRIPE WEBHOOK EVENTS (Idempotency/audit)
+// ============================================
+
+model StripeWebhookEvent {
+  id          String        @id @default(uuid())
+  eventId     String        @unique
+  type        String
+  payload     Json
+  status      WebhookStatus @default(RECEIVED)
+  receivedAt  DateTime      @default(now())
+  processedAt DateTime?
+  error       String?       @db.Text
+
+  @@index([type])
+  @@index([status])
+  @@index([receivedAt])
+  @@map("stripe_webhook_events")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum AuthProvider {
+  EMAIL
+  PHONE
+  GOOGLE
+  APPLE
+}
+
+enum OtpType {
+  EMAIL
+  PHONE
+}
+
+enum OtpPurpose {
+  REGISTRATION
+  LOGIN
+  FORGOT_PASSWORD
+  VERIFICATION
+}
+
+enum SubscriptionTier {
+  FREE
+  PREMIUM
+  PLATINUM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum ReadingLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum StoryTheme {
+  ADVENTURE
+  FANTASY
+  ANIMALS
+  FRIENDSHIP
+  BEDTIME
+  EDUCATIONAL
+  FAIRY_TALE
+  SUPERHERO
+  NATURE
+  SPACE
+  OCEAN
+  DINOSAURS
+  MAGIC
+  MYSTERY
+  FAMILY
+  KINDNESS
+  COURAGE
+  CUSTOM
+}
+
+enum AgeGroup {
+  TODDLER // 2-3 years
+  PRESCHOOL // 4-5 years
+  EARLY_READER // 6-7 years
+  MIDDLE_CHILD // 8-10 years
+  PRETEEN // 11-12 years
+}
+
+enum StoryDuration {
+  SHORT // ~3-5 minutes
+  MEDIUM // ~5-10 minutes
+  LONG // ~10-15 minutes
+}
+
+enum VoiceType {
+  CUSTOM // User-uploaded voice
+  PRESET // Pre-made voices
+  PREMIUM // Premium voices
+}
+
+enum VoiceGender {
+  MALE
+  FEMALE
+  NEUTRAL
+}
+
+enum VoiceAgeRange {
+  CHILD
+  YOUNG_ADULT
+  ADULT
+  SENIOR
+}
+
+enum VoiceStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  DELETED
+}
+
+enum AudioStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum JobType {
+  VOICE_CLONE
+  STORY_GENERATE
+  AUDIO_GENERATE
+  FULL_STORY_PIPELINE
+  BATCH_GENERATE
+  EXPORT_DATA
+  SEND_EMAIL
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  RETRYING
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+enum PaymentMethod {
+  CARD
+  APPLE_PAY
+  GOOGLE_PAY
+  BANK_TRANSFER
+  PAYPAL
+}
+
+enum ResourceType {
+  STORY
+  VOICE
+  AUDIO
+  STORAGE
+  API_CALL
+}
+
+enum UsageAction {
+  CREATED
+  GENERATED
+  CONSUMED
+  DELETED
+}
+
+enum NotificationType {
+  STORY_READY
+  VOICE_READY
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_RENEWED
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  WEEKLY_DIGEST
+  NEW_FEATURE
+  SYSTEM
+}
+
+enum FeedbackType {
+  BUG
+  FEATURE_REQUEST
+  GENERAL
+  COMPLAINT
+  PRAISE
+}
+
+enum CredentialProvider {
+  OPENAI
+  ELEVENLABS
+  STRIPE
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
