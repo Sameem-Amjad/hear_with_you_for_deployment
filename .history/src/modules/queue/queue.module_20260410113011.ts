@@ -9,9 +9,6 @@ import { QUEUE_NAMES } from './queue.constants';
 import { StoryModule } from '../story/story.module';
 import { AudioModule } from '../audio/audio.module';
 import { AudioService } from '../audio/audio.service';
-import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
-import { AudioProcessorService } from '../audio/audio-processor.service';
-import { ProviderCredentialsService } from '../provider-credentials/provider-credentials.service';
 
 @Module({
   imports: [
@@ -38,7 +35,7 @@ import { ProviderCredentialsService } from '../provider-credentials/provider-cre
       { name: QUEUE_NAMES.CLEANUP },
     ),
   ],
-  providers: [QueueService, StoryProcessor, AudioProcessor, CleanupProcessor,AudioService,ElevenLabsService,AudioProcessorService,ProviderCredentialsService],
+  providers: [QueueService, StoryProcessor, AudioProcessor, CleanupProcessor,AudioService],
   exports: [QueueService],
 })
 export class QueueModule {}

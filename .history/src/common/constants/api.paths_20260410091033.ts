@@ -7,20 +7,18 @@ export const API_PATHS = {
     EMAIL: {
       REGISTER: 'email/register',
       VERIFY_REGISTER: 'email/verifyregister',
-      ResendRegister: 'email/resend-register',
-      LOGIN: 'email/login',
     },
     PHONE: {
       REGISTER: 'phone/register',
       VERIFY_REGISTER: 'phone/verifyregister',
     },
     PASSWORD: {
-      
+      LOGIN: 'login',
       FORGOT: 'password/forgot',
       VERIFY_OTP: 'password/verifyotp',
-      ResendOtp: 'password/resend-otp',
       RESET: 'password/reset',
     },
+    OTP_RESEND: 'otp/resend',
     LOGOUT: 'logout',
   },
   USER: {

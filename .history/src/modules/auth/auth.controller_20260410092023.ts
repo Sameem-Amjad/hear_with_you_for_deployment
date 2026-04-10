@@ -114,10 +114,7 @@ export class AuthController {
     description: SWAGGER_META.AUTH.RESEND_OTP.DESCRIPTION,
   })
   resendPasswordOtp(@Body() dto: ResendOtpDto ) {
-    return this.authService.resendOtp({
-      ...dto,
-      purpose: ResendOtpPurpose.FORGOT_PASSWORD
-    });
+    return this.authService.resendOtp({...dto, purpose: ResendOtpPurpose.REGISTER});
   }
 
 
@@ -144,7 +141,7 @@ export class AuthController {
   }
 
   @Public()
-  @Post(API_PATHS.AUTH.EMAIL.LOGIN)
+  @Post(API_PATHS.AUTH.PASSWORD.LOGIN)
   @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
   @ApiOperation({
     summary: SWAGGER_META.AUTH.PASSWORD_LOGIN.SUMMARY,

@@ -116,7 +116,7 @@ export class AuthController {
   resendPasswordOtp(@Body() dto: ResendOtpDto ) {
     return this.authService.resendOtp({
       ...dto,
-      purpose: ResendOtpPurpose.FORGOT_PASSWORD
+      purpose: ResendOtpPurpose.FORGOT_PASSWORD,
     });
   }
 

@@ -69,7 +69,7 @@ export class StorageService {
 
     const extension = extname(file.originalname).toLowerCase() || '.jpg';
     const filename = `${uuidv4()}-${Date.now()}${extension}`;
-    const key = `hear_with_you/${folder.replace(/\/$/, '')}/${filename}`;
+    const key = `${folder.replace(/\/$/, '')}/${filename}`;
 
     try {
       await this.client.send(

@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
 import { StoryGenerationController } from './story-generation.controller';
 import { StoryGenerationService } from './story-generation.service';
-import { QueueModule } from '../queue/queue.module';
-import { PrismaModule } from '../prisma/prisma.module';
+import { QueueService } from '../queue/queue.service';
 
 @Module({
-  imports: [QueueModule, PrismaModule],
+
   controllers: [StoryGenerationController],
-  providers: [StoryGenerationService],
+  providers: [StoryGenerationService,QueueService],
 })
 export class StoryGenerationModule {}

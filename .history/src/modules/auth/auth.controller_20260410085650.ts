@@ -18,7 +18,7 @@ import { SocialLoginDto } from './dto/sociallogin.dto';
 import { VerifyEmailRegisterDto } from './dto/verifyemailregister.dto';
 import { VerifyForgotPasswordDto } from './dto/verifyforgotpassword.dto';
 import { VerifyPhoneRegisterDto } from './dto/verifyphoneregister.dto';
-import { ResendOtpDto, ResendOtpPurpose } from './dto/resendotp.dto';
+import { ResendOtpDto } from './dto/resendotp.dto';
 import { AuthService } from './auth.service';
 import { API_PATHS } from '../../common/constants/api.paths';
 import { SWAGGER_META } from '../../common/constants/swagger.meta';
@@ -85,14 +85,14 @@ export class AuthController {
   }
 
   @Public()
-  @Post(API_PATHS.AUTH.EMAIL.ResendRegister)
+  @Post(API_PATHS.AUTH.OTP_RESEND)
   @Throttle({ default: { limit: 3, ttl: 15 * 60 * 1000 } })
   @ApiOperation({
     summary: SWAGGER_META.AUTH.RESEND_OTP.SUMMARY,
     description: SWAGGER_META.AUTH.RESEND_OTP.DESCRIPTION,
   })
-  resendOtp(@Body() dto: ResendOtpDto ) {
-    return this.authService.resendOtp({...dto, purpose: ResendOtpPurpose.REGISTER});
+  resendOtp(@Body() dto: ResendOtpDto) {
+    return this.authService.resendOtp(dto);
   }
 
   @Public()
@@ -105,21 +105,6 @@ export class AuthController {
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }
-  
-  @Public()
-  @Post(API_PATHS.AUTH.PASSWORD.ResendOtp)
-  @Throttle({ default: { limit: 3, ttl: 15 * 60 * 1000 } })
-  @ApiOperation({
-    summary: SWAGGER_META.AUTH.RESEND_OTP.SUMMARY,
-    description: SWAGGER_META.AUTH.RESEND_OTP.DESCRIPTION,
-  })
-  resendPasswordOtp(@Body() dto: ResendOtpDto ) {
-    return this.authService.resendOtp({
-      ...dto,
-      purpose: ResendOtpPurpose.FORGOT_PASSWORD
-    });
-  }
-
 
   @Public()
   @Post(API_PATHS.AUTH.PHONE.REGISTER)
@@ -144,7 +129,7 @@ export class AuthController {
   }
 
   @Public()
-  @Post(API_PATHS.AUTH.EMAIL.LOGIN)
+  @Post(API_PATHS.AUTH.PASSWORD.LOGIN)
   @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
   @ApiOperation({
     summary: SWAGGER_META.AUTH.PASSWORD_LOGIN.SUMMARY,

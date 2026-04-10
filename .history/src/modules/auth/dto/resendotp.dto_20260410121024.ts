@@ -14,8 +14,9 @@ export enum ResendOtpPurpose {
 export class ResendOtpDto {
   @ApiProperty({ enum: OtpMethod, example: 'email' })
   @IsEnum(OtpMethod)
+  @default(OtpMethod.EMAIL)
   @IsOptional()
-  method?: OtpMethod = OtpMethod.EMAIL;
+  method?: OtpMethod;
 
   @ApiProperty({ enum: ResendOtpPurpose, example: 'register' })
   @IsEnum(ResendOtpPurpose)

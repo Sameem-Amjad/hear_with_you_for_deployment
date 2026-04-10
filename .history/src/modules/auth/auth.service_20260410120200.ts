@@ -57,13 +57,9 @@ export class AuthService {
 
     let isNewUser = false;
     if (!user) {
-      const username = await this.generateUniqueUsername(
-        typeof decoded.name === 'string' ? decoded.name : email,
-      );
       user = await this.prismaService.user.create({
         data: {
           firebaseUid,
-          username,
           email,
           name: typeof decoded.name === 'string' ? decoded.name : undefined,
           profilePicture:
@@ -167,11 +163,9 @@ export class AuthService {
     });
 
     try {
-      const username = await this.generateUniqueUsername(email);
       const user = await this.prismaService.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            username,
             email,
             passwordHash,
             firebaseUid: firebaseUser.uid,
@@ -334,11 +328,9 @@ export class AuthService {
     });
 
     try {
-      const username = await this.generateUniqueUsername(phone);
       const user = await this.prismaService.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            username,
             phone,
             passwordHash,
             firebaseUid: firebaseUser.uid,
@@ -454,35 +446,5 @@ export class AuthService {
         API_MESSAGES.AUTH.ERROR.PHONE_ALREADY_REGISTERED,
       );
     }
-  }
-
-  private async generateUniqueUsername(seed?: string): Promise<string> {
-    const normalizedSeed = (seed ?? 'user')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '')
-      .replace(/^[_-]+|[_-]+$/g, '');
-
-    const base = (normalizedSeed || 'user').slice(0, 24);
-
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const suffix = Math.floor(Math.random() * 100000)
-        .toString()
-        .padStart(5, '0');
-      const candidate = `${base}_${suffix}`;
-
-      const existing = await this.prismaService.user.findFirst({
-        where: {
-          username: candidate,
-          isDeleted: false,
-        },
-        select: { id: true },
-      });
-
-      if (!existing) {
-        return candidate;
-      }
-    }
-
-    throw new BadRequestException('Unable to generate a unique username');
   }
 }

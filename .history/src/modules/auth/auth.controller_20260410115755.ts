@@ -114,10 +114,7 @@ export class AuthController {
     description: SWAGGER_META.AUTH.RESEND_OTP.DESCRIPTION,
   })
   resendPasswordOtp(@Body() dto: ResendOtpDto ) {
-    return this.authService.resendOtp({
-      ...dto,
-      purpose: ResendOtpPurpose.FORGOT_PASSWORD
-    });
+    return this.authService.resendOtp({...dto, purpose: ResendOtpPurpose.REGISTER});
   }
 
 
