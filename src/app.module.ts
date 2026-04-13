@@ -25,6 +25,8 @@ import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { PlayHistoryModule } from './modules/play-history/play-history.module';
 
 @Module({
   imports: [
@@ -54,6 +56,7 @@ import { AdminModule } from './modules/admin/admin.module';
         STRIPE_SUCCESS_URL: Joi.string().uri().required(),
         STRIPE_CANCEL_URL: Joi.string().uri().required(),
         ADMIN_EMAILS: Joi.string().default(''),
+        ADMIN_SETUP_KEY: Joi.string().allow('').optional(),
         REDIS_HOST: Joi.string().default('127.0.0.1'),
         REDIS_PORT: Joi.number().default(6379),
         REDIS_PASSWORD: Joi.string().allow('').optional(),
@@ -94,6 +97,8 @@ import { AdminModule } from './modules/admin/admin.module';
     AnalyticsModule,
     NotificationModule,
     AdminModule,
+    TemplatesModule,
+    PlayHistoryModule,
     UserModule,
   ],
   providers: [

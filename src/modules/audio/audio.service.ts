@@ -78,6 +78,7 @@ export class AudioService {
         const s = await tx.story.update({
           where: { id: story.id },
           data: {
+            voiceProfileId: voiceProfile.id,
             audioUrl: uploaded.url,
             audioS3Key: uploaded.key,
             audioSize: uploaded.size,

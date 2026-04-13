@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
@@ -35,6 +43,40 @@ export class StoryController {
     });
   }
 
+  @Get('favorites')
+  @ApiOperation({ summary: 'List favorite stories' })
+  async favorites(
+    @CurrentUser() user: { id: string },
+    @Query() query: PaginationQueryDto,
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.storyService.listFavorites(user.id, page, limit);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
+  @Get('recent')
+  @ApiOperation({ summary: 'List recently played stories' })
+  async recent(
+    @CurrentUser() user: { id: string },
+    @Query() query: PaginationQueryDto,
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.storyService.listRecent(user.id, page, limit);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: SWAGGER_META.STORY.GET_ONE.SUMMARY,
@@ -42,5 +84,20 @@ export class StoryController {
   })
   get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.storyService.get(user.id, id);
+  }
+
+  @Post(':id/favorite')
+  @ApiOperation({ summary: 'Add story to favorites' })
+  addFavorite(@CurrentUser() user: { id: string }, @Param('id') id: string) {
+    return this.storyService.addFavorite(user.id, id);
+  }
+
+  @Delete(':id/favorite')
+  @ApiOperation({ summary: 'Remove story from favorites' })
+  removeFavorite(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+  ) {
+    return this.storyService.removeFavorite(user.id, id);
   }
 }

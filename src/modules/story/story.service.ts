@@ -37,17 +37,31 @@ export class StoryService {
     private readonly openAiService: OpenAiService,
   ) {}
 
-  private monthlyLimit(tier: SubscriptionTier): number {
-    switch (tier) {
-      case SubscriptionTier.FREE:
-        return 5;
-      case SubscriptionTier.PREMIUM:
-        return 50;
-      case SubscriptionTier.PLATINUM:
-        return 1_000_000;
-      default:
-        return 50;
-    }
+  private toStoryWithVoiceState<T extends { audioStatus?: string; audioUrl?: string | null }>(
+    story: T,
+  ) {
+    return {
+      ...story,
+      isVoiceStoryCreated:
+        story.audioStatus === 'COMPLETED' && Boolean(story.audioUrl),
+    };
+  }
+
+  private async getMonthlyStoryLimit(params: {
+    subscriptionTier: SubscriptionTier;
+    currentSubscriptionPlanId?: string | null;
+  }): Promise<number> {
+    const plan = params.currentSubscriptionPlanId
+      ? await this.prismaService.subscriptionPlan.findUnique({
+          where: { id: params.currentSubscriptionPlanId },
+          select: { storiesPerMonth: true },
+        })
+      : await this.prismaService.subscriptionPlan.findUnique({
+          where: { code: params.subscriptionTier },
+          select: { storiesPerMonth: true },
+        });
+
+    return plan?.storiesPerMonth ?? 5;
   }
 
   async generate(userId: string, dto: GenerateStoryDto) {
@@ -56,6 +70,7 @@ export class StoryService {
       select: {
         id: true,
         subscriptionTier: true,
+        currentSubscriptionPlanId: true,
         storiesGeneratedThisMonth: true,
         isActive: true,
         isDeleted: true,
@@ -65,7 +80,10 @@ export class StoryService {
       throw new NotFoundException('User not found');
     }
 
-    const limit = this.monthlyLimit(user.subscriptionTier);
+    const limit = await this.getMonthlyStoryLimit({
+      subscriptionTier: user.subscriptionTier,
+      currentSubscriptionPlanId: user.currentSubscriptionPlanId,
+    });
     if (user.storiesGeneratedThisMonth >= limit) {
       throw new ForbiddenException(API_MESSAGES.STORY.ERROR.LIMIT_REACHED);
     }
@@ -160,7 +178,10 @@ export class StoryService {
       return created;
     });
 
-    return { message: API_MESSAGES.STORY.SUCCESS.GENERATED, story };
+    return {
+      message: API_MESSAGES.STORY.SUCCESS.GENERATED,
+      story: this.toStoryWithVoiceState(story),
+    };
   }
 
   async get(userId: string, id: string) {
@@ -168,7 +189,7 @@ export class StoryService {
       where: { id, userId },
     });
     if (!story) throw new NotFoundException('Story not found');
-    return { story };
+    return { story: this.toStoryWithVoiceState(story) };
   }
 
   async list(userId: string, page = 1, limit = 20) {
@@ -182,6 +203,134 @@ export class StoryService {
       }),
       this.prismaService.story.count({ where: { userId } }),
     ]);
-    return { items, total, page, limit };
+    return {
+      items: items.map((item) => this.toStoryWithVoiceState(item)),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async addFavorite(userId: string, storyId: string) {
+    const story = await this.prismaService.story.findFirst({
+      where: { id: storyId, userId },
+      select: { id: true },
+    });
+    if (!story) throw new NotFoundException('Story not found');
+
+    const favorite = await this.prismaService.favorite.upsert({
+      where: {
+        userId_storyId: {
+          userId,
+          storyId,
+        },
+      },
+      update: {},
+      create: {
+        userId,
+        storyId,
+      },
+    });
+
+    return { message: 'Added to favorites', favorite };
+  }
+
+  async removeFavorite(userId: string, storyId: string) {
+    const favorite = await this.prismaService.favorite.findUnique({
+      where: {
+        userId_storyId: {
+          userId,
+          storyId,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!favorite) {
+      return { message: 'Removed from favorites' };
+    }
+
+    await this.prismaService.favorite.delete({
+      where: {
+        userId_storyId: {
+          userId,
+          storyId,
+        },
+      },
+    });
+    return { message: 'Removed from favorites' };
+  }
+
+  async listFavorites(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [items, total] = await this.prismaService.$transaction([
+      this.prismaService.favorite.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          story: true,
+        },
+      }),
+      this.prismaService.favorite.count({ where: { userId } }),
+    ]);
+
+    return {
+      items: items.map((item) => ({
+        favoritedAt: item.createdAt,
+        story: this.toStoryWithVoiceState(item.story),
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async listRecent(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+
+    const [recentPlays, grouped] = await this.prismaService.$transaction([
+      this.prismaService.playHistory.findMany({
+        where: { userId },
+        distinct: ['storyId'],
+        orderBy: { playedAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          story: true,
+        },
+      }),
+      this.prismaService.playHistory.groupBy({
+        by: ['storyId'],
+        where: { userId },
+        orderBy: { storyId: 'asc' },
+      }),
+    ]);
+
+    const storyIds = recentPlays.map((item) => item.storyId);
+    const favorites = storyIds.length
+      ? await this.prismaService.favorite.findMany({
+          where: {
+            userId,
+            storyId: { in: storyIds },
+          },
+          select: { storyId: true },
+        })
+      : [];
+    const favoriteSet = new Set(favorites.map((f) => f.storyId));
+
+    return {
+      items: recentPlays.map((item) => ({
+        story: this.toStoryWithVoiceState(item.story),
+        playedAt: item.playedAt,
+        playbackPositionSeconds: item.duration,
+        completionRate: item.completionRate,
+        isFavorite: favoriteSet.has(item.storyId),
+      })),
+      total: grouped.length,
+      page,
+      limit,
+    };
   }
 }

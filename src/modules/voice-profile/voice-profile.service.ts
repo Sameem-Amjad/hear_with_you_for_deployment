@@ -9,6 +9,8 @@ import { parseBuffer } from 'music-metadata';
 import { Prisma, SubscriptionTier, VoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
+import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
 import { ElevenLabsService } from './elevenlabs.service';
@@ -23,7 +25,7 @@ export class VoiceProfileService {
     private readonly elevenLabsService: ElevenLabsService,
   ) {}
 
-  private maxVoicesForTier(tier: SubscriptionTier): number {
+  private defaultVoiceLimitForTier(tier: SubscriptionTier): number {
     switch (tier) {
       case SubscriptionTier.FREE:
         return 1;
@@ -31,20 +33,196 @@ export class VoiceProfileService {
         return 3;
       case SubscriptionTier.PLATINUM:
         return 10;
+      case SubscriptionTier.ENTERPRISE:
+        return 10;
       default:
         return 10;
     }
   }
 
-  private async getUserTier(userId: string): Promise<SubscriptionTier> {
+  private async getUserSubscription(userId: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
-      select: { subscriptionTier: true, isDeleted: true, isActive: true },
+      select: {
+        subscriptionTier: true,
+        currentSubscriptionPlanId: true,
+        isDeleted: true,
+        isActive: true,
+      },
     });
     if (!user || user.isDeleted || !user.isActive) {
       throw new NotFoundException('User not found');
     }
-    return user.subscriptionTier;
+    return user;
+  }
+
+  private async ensureVoiceLimit(userId: string): Promise<void> {
+    const user = await this.getUserSubscription(userId);
+
+    const plan = user.currentSubscriptionPlanId
+      ? await this.prismaService.subscriptionPlan.findUnique({
+          where: { id: user.currentSubscriptionPlanId },
+          select: { voiceProfiles: true },
+        })
+      : await this.prismaService.subscriptionPlan.findUnique({
+          where: { code: user.subscriptionTier },
+          select: { voiceProfiles: true },
+        });
+
+    const maxVoices =
+      plan?.voiceProfiles ?? this.defaultVoiceLimitForTier(user.subscriptionTier);
+    const existingCount = await this.prismaService.voiceProfile.count({
+      where: { userId, isActive: true },
+    });
+    if (existingCount >= maxVoices) {
+      throw new ForbiddenException(
+        'Voice profile limit reached for your subscription tier',
+      );
+    }
+  }
+
+  private async createProfileAndClone(params: {
+    userId: string;
+    name: string;
+    description?: string;
+    sampleAudioUrls: string[];
+    sampleDuration: number;
+    filesForClone: Array<{
+      filename: string;
+      buffer: Buffer;
+      mimetype: string;
+    }>;
+  }) {
+    const voiceProfile = await this.prismaService.voiceProfile.create({
+      data: {
+        userId: params.userId,
+        name: params.name,
+        description: params.description,
+        sampleAudioUrls: params.sampleAudioUrls,
+        sampleDuration: params.sampleDuration || undefined,
+        status: VoiceStatus.PROCESSING,
+      },
+    });
+
+    try {
+      const addRes = await this.elevenLabsService.addVoice({
+        name: voiceProfile.name,
+        description: voiceProfile.description ?? undefined,
+        files: params.filesForClone,
+      });
+
+      const updated = await this.prismaService.voiceProfile.update({
+        where: { id: voiceProfile.id },
+        data: {
+          elevenLabsVoiceId: addRes.voice_id,
+          status: VoiceStatus.READY,
+          processingError: null,
+        },
+      });
+
+      const activeVoiceCount = await this.prismaService.voiceProfile.count({
+        where: { userId: params.userId, isActive: true },
+      });
+      await this.prismaService.user.update({
+        where: { id: params.userId },
+        data: { voiceProfilesCount: activeVoiceCount },
+      });
+
+      return {
+        message: 'Voice profile created',
+        voiceProfile: updated,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Voice cloning failed: ${msg}`);
+      await this.prismaService.voiceProfile.update({
+        where: { id: voiceProfile.id },
+        data: { status: VoiceStatus.FAILED, processingError: msg },
+      });
+      throw new BadRequestException('Voice cloning failed');
+    }
+  }
+
+  async createUploadSession(userId: string, dto: CreateUploadSessionDto) {
+    if (dto.size > 10 * 1024 * 1024) {
+      throw new BadRequestException('Audio file size must not exceed 10MB');
+    }
+
+    await this.ensureVoiceLimit(userId);
+
+    const session = await this.storageService.createAudioPresignedUpload({
+      userId,
+      fileName: dto.fileName,
+      contentType: dto.contentType,
+    });
+
+    return {
+      uploadSession: session,
+      provider: 'digitalocean-spaces',
+      message: 'Upload session created',
+    };
+  }
+
+  async createWithUploadedKeys(
+    userId: string,
+    dto: CompleteUploadVoiceProfileDto,
+  ) {
+    await this.ensureVoiceLimit(userId);
+
+    let totalDurationSeconds = 0;
+    const cloneFiles: Array<{
+      filename: string;
+      buffer: Buffer;
+      mimetype: string;
+    }> = [];
+    const sampleAudioUrls: string[] = [];
+
+    for (const key of dto.objectKeys) {
+      if (!key.startsWith(`voice-samples/${userId}/uploads/`)) {
+        throw new BadRequestException('Invalid object key');
+      }
+
+      await this.storageService.assertObjectExists(key);
+      const buffer = await this.storageService.downloadObjectBuffer(key);
+      const mimetype = key.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+      const file: Express.Multer.File = {
+        fieldname: 'samples',
+        originalname: key.split('/').pop() ?? 'sample.mp3',
+        encoding: '7bit',
+        mimetype,
+        size: buffer.length,
+        buffer,
+        destination: '',
+        filename: '',
+        path: '',
+        stream: undefined as never,
+      };
+
+      this.storageService.validateAudioFile(file);
+      const metadata = await parseBuffer(buffer, mimetype, {
+        duration: true,
+      }).catch(() => null);
+      const dur = metadata?.format?.duration
+        ? Math.round(metadata.format.duration)
+        : 0;
+      totalDurationSeconds += dur;
+
+      cloneFiles.push({
+        filename: file.originalname,
+        buffer,
+        mimetype,
+      });
+      sampleAudioUrls.push(this.storageService.getPublicUrlFromKey(key));
+    }
+
+    return this.createProfileAndClone({
+      userId,
+      name: dto.name,
+      description: dto.description,
+      sampleAudioUrls,
+      sampleDuration: totalDurationSeconds,
+      filesForClone: cloneFiles,
+    });
   }
 
   async createWithSamples(
@@ -59,15 +237,7 @@ export class VoiceProfileService {
       throw new BadRequestException('Maximum 5 audio samples allowed');
     }
 
-    const tier = await this.getUserTier(userId);
-    const existingCount = await this.prismaService.voiceProfile.count({
-      where: { userId, isActive: true },
-    });
-    if (existingCount >= this.maxVoicesForTier(tier)) {
-      throw new ForbiddenException(
-        'Voice profile limit reached for your subscription tier',
-      );
-    }
+    await this.ensureVoiceLimit(userId);
 
     let totalDurationSeconds = 0;
     const sampleAudioUrls: string[] = [];
@@ -88,60 +258,66 @@ export class VoiceProfileService {
       sampleAudioUrls.push(url);
     }
 
-    const voiceProfile = await this.prismaService.voiceProfile.create({
-      data: {
-        userId,
-        name: dto.name,
-        description: dto.description,
-        sampleAudioUrls,
-        sampleDuration: totalDurationSeconds || undefined,
-        status: VoiceStatus.PROCESSING,
-      },
+    return this.createProfileAndClone({
+      userId,
+      name: dto.name,
+      description: dto.description,
+      sampleAudioUrls,
+      sampleDuration: totalDurationSeconds,
+      filesForClone: files.map((f) => ({
+        filename: f.originalname,
+        buffer: f.buffer,
+        mimetype: f.mimetype,
+      })),
     });
-
-    // Clone voice in ElevenLabs (synchronous for now; queued orchestration added later).
-    try {
-      const addRes = await this.elevenLabsService.addVoice({
-        name: voiceProfile.name,
-        description: voiceProfile.description ?? undefined,
-        files: files.map((f) => ({
-          filename: f.originalname,
-          buffer: f.buffer,
-          mimetype: f.mimetype,
-        })),
-      });
-
-      const updated = await this.prismaService.voiceProfile.update({
-        where: { id: voiceProfile.id },
-        data: {
-          elevenLabsVoiceId: addRes.voice_id,
-          status: VoiceStatus.READY,
-          processingError: null,
-        },
-      });
-
-      return {
-        message: 'Voice profile created',
-        voiceProfile: updated,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Voice cloning failed: ${msg}`);
-      await this.prismaService.voiceProfile.update({
-        where: { id: voiceProfile.id },
-        data: { status: VoiceStatus.FAILED, processingError: msg },
-      });
-      throw new BadRequestException('Voice cloning failed');
-    }
   }
 
-  async list(userId: string) {
-    const items = await this.prismaService.voiceProfile.findMany({
-      where: { userId, isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
+  async list(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [items, total] = await this.prismaService.$transaction([
+      this.prismaService.voiceProfile.findMany({
+        where: { userId, isActive: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          userId: true,
+          name: true,
+          description: true,
+          elevenLabsVoiceId: true,
+          sampleAudioUrls: true,
+          isActive: true,
+          lastUsedAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              stories: true,
+            },
+          },
+        },
+      }),
+      this.prismaService.voiceProfile.count({
+        where: { userId, isActive: true },
+      }),
+    ]);
+
     return {
-      voiceProfiles: items,
+      items: items.map((item) => ({
+        id: item.id,
+        userId: item.userId,
+        name: item.name,
+        description: item.description,
+        elevenLabsVoiceId: item.elevenLabsVoiceId,
+        sampleAudioUrl: item.sampleAudioUrls[0] ?? null,
+        isActive: item.isActive,
+        lastUsedAt: item.lastUsedAt,
+        updatedAt: item.updatedAt,
+        storiesCount: item._count.stories,
+      })),
+      total,
+      page,
+      limit,
     };
   }
 
@@ -203,6 +379,15 @@ export class VoiceProfileService {
       where: { id },
       data: { isActive: false, status: VoiceStatus.DELETED },
     });
+
+    const activeVoiceCount = await this.prismaService.voiceProfile.count({
+      where: { userId, isActive: true },
+    });
+    await this.prismaService.user.update({
+      where: { id: userId },
+      data: { voiceProfilesCount: activeVoiceCount },
+    });
+
     return { message: 'Voice profile deleted' };
   }
 }

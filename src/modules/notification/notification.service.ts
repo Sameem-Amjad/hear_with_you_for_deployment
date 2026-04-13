@@ -5,13 +5,18 @@ import { PrismaService } from '../prisma/prisma.service';
 export class NotificationService {
   constructor(private readonly prismaService: PrismaService) {}
 
-  async list(userId: string) {
-    const items = await this.prismaService.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return { notifications: items };
+  async list(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const [items, total] = await this.prismaService.$transaction([
+      this.prismaService.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prismaService.notification.count({ where: { userId } }),
+    ]);
+    return { items, total, page, limit };
   }
 
   async markRead(userId: string, id: string) {

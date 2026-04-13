@@ -5,11 +5,92 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from './stripe.service';
-import { SubscriptionStatus, SubscriptionTier } from '@prisma/client';
+import {
+  PaymentMethod,
+  PaymentStatus,
+  SubscriptionStatus,
+  SubscriptionTier,
+} from '@prisma/client';
+import { IapPlatform, ValidateIapReceiptDto } from './dto/validate-iap-receipt.dto';
+
+type PlanSettings = {
+  id: string;
+  code: SubscriptionTier;
+  displayName: string;
+  displayPrice: number;
+  currency: string;
+  billingPeriod: 'none' | 'month' | 'year';
+  storiesPerMonth: number;
+  voiceProfiles: number;
+  storeProductIdIos: string;
+  storeProductIdAndroid: string;
+  isActive: boolean;
+};
 
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
+
+  private getFallbackPlanSettings(): Record<SubscriptionTier, PlanSettings> {
+    return {
+      [SubscriptionTier.FREE]: {
+        id: 'plan_free',
+        code: SubscriptionTier.FREE,
+        displayName: 'Basic',
+        displayPrice: 0,
+        currency: 'USD',
+        billingPeriod: 'none',
+        storiesPerMonth: 5,
+        voiceProfiles: 1,
+        storeProductIdIos: '',
+        storeProductIdAndroid: '',
+        isActive: true,
+      },
+      [SubscriptionTier.PREMIUM]: {
+        id: 'plan_premium',
+        code: SubscriptionTier.PREMIUM,
+        displayName: 'Premium',
+        displayPrice: Number(this.configService.get('IAP_PREMIUM_PRICE') ?? 9.99),
+        currency: 'USD',
+        billingPeriod: 'month',
+        storiesPerMonth: 50,
+        voiceProfiles: 3,
+        storeProductIdIos: '',
+        storeProductIdAndroid: '',
+        isActive: true,
+      },
+      [SubscriptionTier.PLATINUM]: {
+        id: 'plan_platinum',
+        code: SubscriptionTier.PLATINUM,
+        displayName: 'Platinum',
+        displayPrice: Number(
+          this.configService.get('IAP_PLATINUM_PRICE') ?? 19.99,
+        ),
+        currency: 'USD',
+        billingPeriod: 'month',
+        storiesPerMonth: 1_000_000,
+        voiceProfiles: 10,
+        storeProductIdIos: '',
+        storeProductIdAndroid: '',
+        isActive: true,
+      },
+      [SubscriptionTier.ENTERPRISE]: {
+        id: 'plan_enterprise',
+        code: SubscriptionTier.ENTERPRISE,
+        displayName: 'Enterprise',
+        displayPrice: Number(
+          this.configService.get('IAP_ENTERPRISE_PRICE') ?? 49.99,
+        ),
+        currency: 'USD',
+        billingPeriod: 'month',
+        storiesPerMonth: 1_000_000,
+        voiceProfiles: 10,
+        storeProductIdIos: '',
+        storeProductIdAndroid: '',
+        isActive: false,
+      },
+    };
+  }
 
   constructor(
     private readonly prismaService: PrismaService,
@@ -17,88 +98,434 @@ export class SubscriptionService {
     private readonly configService: ConfigService,
   ) {}
 
-  async createCheckoutSession(userId: string, priceId: string) {
-    const user = await this.prismaService.user.findUnique({
-      where: { id: userId },
-    });
-    if (!user) throw new BadRequestException('User not found');
+  private asPositiveInt(value: unknown): number | undefined {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return undefined;
+    const int = Math.floor(num);
+    return int > 0 ? int : undefined;
+  }
 
-    const successUrl =
-      this.configService.getOrThrow<string>('STRIPE_SUCCESS_URL');
-    const cancelUrl =
-      this.configService.getOrThrow<string>('STRIPE_CANCEL_URL');
+  private asNonNegativeNumber(value: unknown): number | undefined {
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return undefined;
+    return num >= 0 ? num : undefined;
+  }
 
-    const session = await this.stripeService.createCheckoutSession({
-      customerEmail: user.email,
-      customerId: user.customerId,
-      priceId,
-      successUrl,
-      cancelUrl,
-      metadata: { userId },
-    });
+  private asNonEmptyString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
 
+  private asBoolean(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return undefined;
+  }
+
+  private async ensureDefaultPlansSeeded(): Promise<void> {
+    const defaults = this.getFallbackPlanSettings();
+
+    await this.prismaService.$transaction(
+      Object.values(defaults).map((plan) =>
+        this.prismaService.subscriptionPlan.upsert({
+          where: { code: plan.code },
+          create: {
+            id: plan.id,
+            code: plan.code,
+            displayName: plan.displayName,
+            displayPrice: plan.displayPrice,
+            currency: plan.currency,
+            billingPeriod: plan.billingPeriod,
+            storiesPerMonth: plan.storiesPerMonth,
+            voiceProfiles: plan.voiceProfiles,
+            storeProductIdIos: plan.storeProductIdIos,
+            storeProductIdAndroid: plan.storeProductIdAndroid,
+            isActive: plan.isActive,
+          },
+          update: {},
+        }),
+      ),
+    );
+  }
+
+  private async getResolvedPlanSettings(): Promise<
+    Record<SubscriptionTier, PlanSettings>
+  > {
+    const defaults = this.getFallbackPlanSettings();
+
+    try {
+      await this.ensureDefaultPlansSeeded();
+
+      const plansFromDb = await this.prismaService.subscriptionPlan.findMany();
+      const byCode = new Map(plansFromDb.map((p) => [p.code, p]));
+      const resolved = { ...defaults } as Record<SubscriptionTier, PlanSettings>;
+
+      for (const tier of Object.values(SubscriptionTier)) {
+        const fallback = defaults[tier];
+        const raw = byCode.get(tier);
+
+        resolved[tier] = {
+          id: this.asNonEmptyString(raw?.id) ?? fallback.id,
+          code: tier,
+          displayName: this.asNonEmptyString(raw?.displayName) ?? fallback.displayName,
+          displayPrice:
+            this.asNonNegativeNumber(raw?.displayPrice) ?? fallback.displayPrice,
+          currency: (this.asNonEmptyString(raw?.currency) ?? fallback.currency).toUpperCase(),
+          billingPeriod: raw?.billingPeriod === 'none' || raw?.billingPeriod === 'month' || raw?.billingPeriod === 'year'
+            ? raw.billingPeriod
+            : fallback.billingPeriod,
+          storiesPerMonth:
+            this.asPositiveInt(raw?.storiesPerMonth) ?? fallback.storiesPerMonth,
+          voiceProfiles:
+            this.asPositiveInt(raw?.voiceProfiles) ?? fallback.voiceProfiles,
+          storeProductIdIos:
+            this.asNonEmptyString(raw?.storeProductIdIos) ?? fallback.storeProductIdIos,
+          storeProductIdAndroid:
+            this.asNonEmptyString(raw?.storeProductIdAndroid) ?? fallback.storeProductIdAndroid,
+          isActive: this.asBoolean(raw?.isActive) ?? fallback.isActive,
+        };
+      }
+
+      return resolved;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Failed to read dynamic plan settings. Falling back to defaults. ${message}`,
+      );
+      return defaults;
+    }
+  }
+
+  private async getPlanLimits(tier: SubscriptionTier) {
+    const plans = await this.getResolvedPlanSettings();
+    const selected = plans[tier] ?? plans[SubscriptionTier.FREE];
     return {
-      message: 'Checkout session created',
-      url: session.url,
-      sessionId: session.id,
+      planId: selected.id,
+      storiesPerMonth: selected.storiesPerMonth,
+      voiceProfiles: selected.voiceProfiles,
     };
   }
 
+  private async resolvePlanFromProductId(
+    productId: string,
+  ): Promise<PlanSettings | null> {
+    const plans = await this.getResolvedPlanSettings();
+    const normalized = productId.toLowerCase();
+
+    for (const tier of Object.values(SubscriptionTier)) {
+      const plan = plans[tier];
+      if (!plan) continue;
+      if (plan.storeProductIdIos.toLowerCase() === normalized) return plan;
+      if (plan.storeProductIdAndroid.toLowerCase() === normalized) return plan;
+    }
+
+    if (normalized.includes('enterprise')) return plans[SubscriptionTier.ENTERPRISE];
+    if (normalized.includes('platinum')) return plans[SubscriptionTier.PLATINUM];
+    if (normalized.includes('premium')) return plans[SubscriptionTier.PREMIUM];
+    if (normalized.includes('free')) return plans[SubscriptionTier.FREE];
+    return null;
+  }
+
+  private resolveDurationDays(productId: string): number {
+    const normalized = productId.toLowerCase();
+    if (normalized.includes('year')) return 365;
+    if (normalized.includes('week')) return 7;
+    return 30;
+  }
+
+  private paymentMethodForPlatform(platform: IapPlatform): PaymentMethod {
+    return platform === IapPlatform.IOS
+      ? PaymentMethod.APPLE_PAY
+      : PaymentMethod.GOOGLE_PAY;
+  }
+
+  private validatePurchasePayload(dto: ValidateIapReceiptDto) {
+    if (!dto.productId || !dto.transactionId) {
+      throw new BadRequestException('Missing IAP transaction metadata');
+    }
+  }
+
+  async getPlans() {
+    const plans = await this.getResolvedPlanSettings();
+
+    return {
+      source: 'iap',
+      provider: 'apple-google-stores',
+      plans: [
+        SubscriptionTier.FREE,
+        SubscriptionTier.PREMIUM,
+        SubscriptionTier.PLATINUM,
+      ]
+        .map((tier) => {
+          const plan = plans[tier];
+          return {
+            id: plan.id,
+            code: plan.code,
+            displayName: plan.displayName,
+            displayPrice: plan.displayPrice,
+            currency: plan.currency,
+            billingPeriod: plan.billingPeriod,
+            limits: {
+              storiesPerMonth: plan.storiesPerMonth,
+              voiceProfiles: plan.voiceProfiles,
+            },
+            storeProductIds: {
+              ios: plan.storeProductIdIos,
+              android: plan.storeProductIdAndroid,
+            },
+            isActive: plan.isActive,
+          };
+        })
+        .filter((p) => p.isActive),
+    };
+  }
+
+  async validateIapReceipt(userId: string, dto: ValidateIapReceiptDto) {
+    this.validatePurchasePayload(dto);
+
+    const planSettings = await this.getResolvedPlanSettings();
+    const mappedPlan = await this.resolvePlanFromProductId(dto.productId);
+    const planById = dto.planId
+      ? Object.values(planSettings).find((plan) => plan.id === dto.planId)
+      : undefined;
+
+    if (dto.planId && !planById) {
+      throw new BadRequestException('Invalid planId');
+    }
+    if (planById && mappedPlan && planById.id !== mappedPlan.id) {
+      throw new BadRequestException('planId does not match productId mapping');
+    }
+
+    const selectedPlan =
+      planById ??
+      mappedPlan ??
+      (dto.tier ? planSettings[dto.tier] : undefined) ??
+      planSettings[SubscriptionTier.FREE];
+
+    const tier = selectedPlan.code;
+    const subscriptionPlanId = selectedPlan.id;
+    const durationDays = this.resolveDurationDays(dto.productId);
+    const startDate = dto.purchaseDate ? new Date(dto.purchaseDate) : new Date();
+    const endDate = dto.expiresDate
+      ? new Date(dto.expiresDate)
+      : new Date(startDate.getTime() + durationDays * 86400000);
+    const status = dto.status ?? SubscriptionStatus.ACTIVE;
+    const amount = dto.amount ?? selectedPlan.displayPrice;
+    const fallbackCurrency = selectedPlan.currency;
+    const currency = (dto.currency ?? fallbackCurrency).toLowerCase();
+    const paymentMethod = this.paymentMethodForPlatform(dto.platform);
+
+    const updatedUser = await this.prismaService.$transaction(async (tx) => {
+      await tx.payment.create({
+        data: {
+          userId,
+          subscriptionPlanId,
+          amount,
+          currency,
+          status: PaymentStatus.SUCCEEDED,
+          paymentMethod,
+          description: `IAP ${tier} purchase`,
+          metadata: {
+            source: 'mobile-client',
+            platform: dto.platform,
+            productId: dto.productId,
+            transactionId: dto.transactionId,
+            purchaseToken: dto.purchaseToken,
+            receiptData: dto.receiptData,
+            reportedTier: dto.tier,
+            reportedStatus: dto.status,
+            purchaseDate: dto.purchaseDate,
+            expiresDate: dto.expiresDate,
+          },
+          paidAt: new Date(),
+        },
+      });
+
+      await tx.subscriptionHistory.create({
+        data: {
+          userId,
+          subscriptionPlanId,
+          tier,
+          status,
+          stripePriceId: dto.productId,
+          stripeInvoiceId: dto.transactionId,
+          startDate,
+          endDate,
+          amount,
+          currency,
+          interval: durationDays >= 365 ? 'year' : 'month',
+          metadata: {
+            source: 'mobile-client',
+            platform: dto.platform,
+            productId: dto.productId,
+            transactionId: dto.transactionId,
+            purchaseToken: dto.purchaseToken,
+            receiptData: dto.receiptData,
+          },
+        },
+      });
+
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          currentSubscriptionPlanId: subscriptionPlanId,
+          subscriptionTier: tier,
+          subscriptionStatus: status,
+          subscriptionStartDate: startDate,
+          subscriptionEndDate: endDate,
+          cancelAtPeriodEnd: false,
+        },
+        select: {
+          id: true,
+          currentSubscriptionPlanId: true,
+          subscriptionTier: true,
+          subscriptionStatus: true,
+          subscriptionStartDate: true,
+          subscriptionEndDate: true,
+        },
+      });
+    });
+
+    return {
+      message: 'IAP purchase recorded and entitlement synced',
+      source: 'mobile-client',
+      subscription: updatedUser,
+      entitlement: await this.getPlanLimits(updatedUser.subscriptionTier),
+    };
+  }
+
+  async syncIapEntitlement(userId: string) {
+    const plans = await this.getResolvedPlanSettings();
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        currentSubscriptionPlanId: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+      },
+    });
+    if (!user) throw new BadRequestException('User not found');
+
+    const now = new Date();
+    const isActive =
+      !!user.subscriptionEndDate &&
+      user.subscriptionEndDate.getTime() > now.getTime() &&
+      user.subscriptionTier !== SubscriptionTier.FREE;
+
+    const status = isActive
+      ? SubscriptionStatus.ACTIVE
+      : SubscriptionStatus.INACTIVE;
+    const tier = isActive ? user.subscriptionTier : SubscriptionTier.FREE;
+    const currentPlanId = plans[tier]?.id ?? plans[SubscriptionTier.FREE].id;
+
+    const updated = await this.prismaService.user.update({
+      where: { id: userId },
+      data: {
+        currentSubscriptionPlanId: currentPlanId,
+        subscriptionStatus: status,
+        subscriptionTier: tier,
+      },
+      select: {
+        id: true,
+        currentSubscriptionPlanId: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+      },
+    });
+
+    return {
+      message: 'Entitlement sync complete',
+      source: 'iap',
+      subscription: updated,
+      entitlement: await this.getPlanLimits(updated.subscriptionTier),
+    };
+  }
+
+  async getMySubscription(userId: string) {
+    const plans = await this.getResolvedPlanSettings();
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        currentSubscriptionPlanId: true,
+        subscriptionTier: true,
+        subscriptionStatus: true,
+        subscriptionStartDate: true,
+        subscriptionEndDate: true,
+        cancelAtPeriodEnd: true,
+      },
+    });
+
+    if (!user) throw new BadRequestException('User not found');
+
+    const limits = await this.getPlanLimits(user.subscriptionTier);
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+
+    const [storiesGeneratedThisMonth, voiceProfilesCount] =
+      await this.prismaService.$transaction([
+        this.prismaService.story.count({
+          where: {
+            userId,
+            createdAt: {
+              gte: monthStart,
+            },
+          },
+        }),
+        this.prismaService.voiceProfile.count({
+          where: {
+            userId,
+            isActive: true,
+          },
+        }),
+      ]);
+
+    const activePlan = Object.values(plans).find(
+      (p) => p.id === user.currentSubscriptionPlanId,
+    ) ?? plans[user.subscriptionTier];
+
+    return {
+      source: 'iap',
+      subscription: {
+        planId: activePlan?.id ?? null,
+        tier: user.subscriptionTier,
+        displayName: activePlan?.displayName,
+        status: user.subscriptionStatus,
+        startDate: user.subscriptionStartDate,
+        endDate: user.subscriptionEndDate,
+        cancelAtPeriodEnd: user.cancelAtPeriodEnd,
+      },
+      usage: {
+        storiesGeneratedThisMonth,
+        voiceProfilesCount,
+        limits,
+      },
+    };
+  }
+
+  async createCheckoutSession(userId: string, priceId: string) {
+    void userId;
+    void priceId;
+    throw new BadRequestException(
+      'Stripe checkout is disabled. Use /subscription/iap/validate for in-app purchases.',
+    );
+  }
+
   async handleWebhook(event: any) {
+    void event;
+    throw new BadRequestException(
+      'Stripe webhook is disabled. This backend is configured for IAP-only subscriptions.',
+    );
+
     // idempotency stored in StripeWebhookEvent table
-    const existing = await this.prismaService.stripeWebhookEvent.findUnique({
-      where: { eventId: event.id },
-    });
-    if (existing?.status === 'PROCESSED') {
-      return { ok: true };
-    }
-
-    await this.prismaService.stripeWebhookEvent.upsert({
-      where: { eventId: event.id },
-      create: {
-        eventId: event.id,
-        type: event.type,
-        payload: event as unknown as object,
-        status: 'PROCESSING',
-      },
-      update: {
-        status: 'PROCESSING',
-        payload: event as unknown as object,
-      },
-    });
-
-    try {
-      switch (event.type) {
-        case 'checkout.session.completed':
-          await this.onCheckoutCompleted(event.data.object);
-          break;
-        case 'customer.subscription.updated':
-        case 'customer.subscription.deleted':
-          await this.onSubscriptionChanged(event.data.object);
-          break;
-        case 'invoice.payment_succeeded':
-        case 'invoice.payment_failed':
-          // payment tracking can be expanded
-          break;
-        default:
-          break;
-      }
-
-      await this.prismaService.stripeWebhookEvent.update({
-        where: { eventId: event.id },
-        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
-      });
-
-      return { ok: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Webhook handling failed: ${message}`);
-      await this.prismaService.stripeWebhookEvent.update({
-        where: { eventId: event.id },
-        data: { status: 'FAILED', processedAt: new Date(), error: message },
-      });
-      throw err;
-    }
   }
 
   private async onCheckoutCompleted(session: any) {

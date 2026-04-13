@@ -30,6 +30,7 @@ model User {
 
   // Subscription Management
   subscriptionTier      SubscriptionTier   @default(FREE)
+  currentSubscriptionPlanId String?
   subscriptionStatus    SubscriptionStatus @default(INACTIVE)
   subscriptionId        String?            @unique // Stripe subscription ID
   customerId            String?            @unique // Stripe customer ID
@@ -66,11 +67,13 @@ model User {
   notifications       Notification[]
   settings            UserSettings?
   feedback            Feedback[]
+  currentSubscriptionPlan SubscriptionPlan? @relation("UserCurrentSubscriptionPlan", fields: [currentSubscriptionPlanId], references: [id], onDelete: SetNull)
 
   @@index([email])
   @@index([phone])
   @@index([firebaseUid])
   @@index([subscriptionTier])
+  @@index([currentSubscriptionPlanId])
   @@map("users")
 }
 
@@ -359,6 +362,7 @@ model PlayHistory {
 model SubscriptionHistory {
   id     String             @id @default(uuid())
   userId String
+  subscriptionPlanId String?
   tier   SubscriptionTier
   status SubscriptionStatus
 
@@ -381,15 +385,42 @@ model SubscriptionHistory {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionPlan SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([subscriptionPlanId])
   @@index([stripeSubscriptionId])
   @@map("subscription_history")
+}
+
+model SubscriptionPlan {
+  id              String           @id @default(uuid())
+  code            SubscriptionTier @unique
+  displayName     String
+  displayPrice    Float
+  currency        String           @default("USD")
+  billingPeriod   String           @default("month")
+  storiesPerMonth Int              @default(5)
+  voiceProfiles   Int              @default(1)
+  storeProductIdIos String?
+  storeProductIdAndroid String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  usersCurrent      User[]                @relation("UserCurrentSubscriptionPlan")
+  subscriptionHistory SubscriptionHistory[]
+  payments          Payment[]
+
+  @@index([code])
+  @@index([isActive])
+  @@map("subscription_plans")
 }
 
 model Payment {
   id     String @id @default(uuid())
   userId String
+  subscriptionPlanId String?
 
   // Stripe data
   stripePaymentIntentId String? @unique
@@ -412,8 +443,10 @@ model Payment {
   createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionPlan SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([subscriptionPlanId])
   @@index([status])
   @@index([stripePaymentIntentId])
   @@map("payments")

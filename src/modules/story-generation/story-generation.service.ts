@@ -3,7 +3,7 @@ import { JobType, Prisma } from '@prisma/client';
 import { QueueService } from '../queue/queue.service';
 import { QUEUE_JOB_NAMES, QUEUE_NAMES } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { FullStoryRequestDto } from './dto/full-story-request.dto';
+import { GenerateStoryDto } from '../story/dto/generate-story.dto';
 
 @Injectable()
 export class StoryGenerationService {
@@ -12,16 +12,14 @@ export class StoryGenerationService {
     private readonly prismaService: PrismaService,
   ) {}
 
-  async enqueueFullPipeline(userId: string, dto: FullStoryRequestDto) {
+  async enqueueStoryText(userId: string, dto: GenerateStoryDto) {
     return this.queueService.enqueue({
       queue: QUEUE_NAMES.STORY_GENERATION,
-      name: QUEUE_JOB_NAMES.STORY_FULL_PIPELINE,
-      type: JobType.FULL_STORY_PIPELINE,
+      name: QUEUE_JOB_NAMES.STORY_GENERATE_TEXT,
+      type: JobType.STORY_GENERATE,
       payload: {
         userId,
         storyDto: dto as unknown as Prisma.InputJsonValue,
-        generateAudio: dto.generateAudio !== false,
-        voiceProfileId: dto.voiceProfileId,
       } as Prisma.InputJsonValue,
       userId,
       priority: 0,

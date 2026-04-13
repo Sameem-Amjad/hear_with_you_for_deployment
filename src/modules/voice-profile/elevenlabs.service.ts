@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import { ProviderCredentialsService } from '../provider-credentials/provider-credentials.service';
 import { CredentialProvider } from '@prisma/client';
 
@@ -9,7 +10,6 @@ type ElevenLabsAddVoiceResponse = {
 @Injectable()
 export class ElevenLabsService {
   private readonly logger = new Logger(ElevenLabsService.name);
-  private readonly baseUrl = 'https://api.elevenlabs.io/v1';
 
   constructor(
     private readonly credentialsService: ProviderCredentialsService,
@@ -21,58 +21,59 @@ export class ElevenLabsService {
     );
   }
 
+  private createClient(): ElevenLabsClient {
+    return new ElevenLabsClient({
+      apiKey: async () => this.getApiKey(),
+    });
+  }
+
+  private async streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  }
+
   async addVoice(params: {
     name: string;
     description?: string;
     files: Array<{ filename: string; buffer: Buffer; mimetype: string }>;
   }): Promise<ElevenLabsAddVoiceResponse> {
-    const apiKey = await this.getApiKey();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const client = this.createClient();
 
-    const form = new FormData();
-    form.append('name', params.name);
-    if (params.description) form.append('description', params.description);
-
-    for (const file of params.files) {
-      const blob = new Blob([new Uint8Array(file.buffer)], {
-        type: file.mimetype,
+    try {
+      const response = await client.voices.ivc.create({
+        name: params.name,
+        description: params.description,
+        files: params.files.map((file) => ({
+          data: file.buffer,
+          filename: file.filename,
+          contentType: file.mimetype,
+        })),
       });
-      form.append('files', blob, file.filename);
-    }
 
-    const res = await fetch(`${this.baseUrl}/voices/add`, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-      },
-      body: form,
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      this.logger.warn(`ElevenLabs addVoice failed: ${res.status} ${text}`);
+      return { voice_id: response.voiceId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`ElevenLabs addVoice failed: ${message}`);
       throw new Error('ElevenLabs voice cloning failed');
     }
-
-    return (await res.json()) as ElevenLabsAddVoiceResponse;
   }
 
   async deleteVoice(voiceId: string): Promise<void> {
-    const apiKey = await this.getApiKey();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    const res = await fetch(`${this.baseUrl}/voices/${voiceId}`, {
-      method: 'DELETE',
-      headers: { 'xi-api-key': apiKey },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      this.logger.warn(`ElevenLabs deleteVoice failed: ${res.status} ${text}`);
+    const client = this.createClient();
+
+    try {
+      await client.voices.delete(voiceId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`ElevenLabs deleteVoice failed: ${message}`);
       throw new Error('ElevenLabs voice deletion failed');
     }
   }
@@ -88,35 +89,28 @@ export class ElevenLabsService {
       use_speaker_boost?: boolean;
     };
   }): Promise<Buffer> {
-    const apiKey = await this.getApiKey();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    const res = await fetch(
-      `${this.baseUrl}/text-to-speech/${params.voiceId}`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify({
-          text: params.text,
-          model_id: params.modelId ?? 'eleven_multilingual_v2',
-          voice_settings: params.voiceSettings ?? undefined,
-        }),
-        signal: controller.signal,
-      },
-    );
-    clearTimeout(timeout);
+    const client = this.createClient();
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      this.logger.warn(`ElevenLabs TTS failed: ${res.status} ${text}`);
+    try {
+      const audioStream = await client.textToSpeech.convert(params.voiceId, {
+        text: params.text,
+        modelId: params.modelId ?? 'eleven_multilingual_v2',
+        outputFormat: 'mp3_44100_128',
+        voiceSettings: params.voiceSettings
+          ? {
+              stability: params.voiceSettings.stability,
+              similarityBoost: params.voiceSettings.similarity_boost,
+              style: params.voiceSettings.style,
+              useSpeakerBoost: params.voiceSettings.use_speaker_boost,
+            }
+          : undefined,
+      });
+
+      return this.streamToBuffer(audioStream);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`ElevenLabs TTS failed: ${message}`);
       throw new Error('ElevenLabs TTS failed');
     }
-
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
   }
 }

@@ -6,10 +6,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  GetObjectCommand,
+  HeadObjectCommand,
   DeleteObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -157,6 +160,70 @@ export class StorageService {
       );
       throw new InternalServerErrorException('File upload failed');
     }
+  }
+
+  async createAudioPresignedUpload(params: {
+    userId: string;
+    fileName: string;
+    contentType: string;
+    expiresInSeconds?: number;
+  }): Promise<{
+    key: string;
+    uploadUrl: string;
+    publicUrl: string;
+    expiresInSeconds: number;
+  }> {
+    const extension = extname(params.fileName).toLowerCase() || '.mp3';
+    const filename = `${uuidv4()}-${Date.now()}${extension}`;
+    const key = `voice-samples/${params.userId}/uploads/${filename}`;
+    const expiresInSeconds = params.expiresInSeconds ?? 900;
+
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: params.contentType,
+      ACL: 'public-read',
+    });
+
+    const uploadUrl = await getSignedUrl(this.client, command, {
+      expiresIn: expiresInSeconds,
+    });
+
+    return {
+      key,
+      uploadUrl,
+      publicUrl: this.getPublicUrlFromKey(key),
+      expiresInSeconds,
+    };
+  }
+
+  getPublicUrlFromKey(key: string): string {
+    return `https://${this.bucket}.${this.region}.digitaloceanspaces.com/${key}`;
+  }
+
+  async assertObjectExists(key: string): Promise<void> {
+    await this.client.send(
+      new HeadObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+  }
+
+  async downloadObjectBuffer(key: string): Promise<Buffer> {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+
+    if (!response.Body) {
+      throw new InternalServerErrorException('File download failed');
+    }
+
+    const bytes = await response.Body.transformToByteArray();
+    return Buffer.from(bytes);
   }
 
   async deleteFile(fileUrl: string): Promise<void> {

@@ -24,6 +24,7 @@ import { ProviderCredentialsService } from '../provider-credentials/provider-cre
           host: configService.get<string>('REDIS_HOST', '127.0.0.1'),
           port: Number(configService.get<number>('REDIS_PORT', 6379)),
           password: configService.get<string>('REDIS_PASSWORD') || undefined,
+            tls: {}, 
         },
         defaultJobOptions: {
           attempts: 3,

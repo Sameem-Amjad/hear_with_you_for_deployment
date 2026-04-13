@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -20,8 +21,12 @@ import {
 } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
+import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
+import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
+import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
 import { VoiceProfileService } from './voice-profile.service';
 
@@ -50,10 +55,39 @@ export class VoiceProfileController {
     return this.voiceProfileService.createWithSamples(user.id, dto, files);
   }
 
+  @Post('upload-sessions')
+  @ApiOperation({ summary: 'Create DigitalOcean Spaces presigned upload URL' })
+  createUploadSession(
+    @CurrentUser() user: { id: string },
+    @Body() dto: CreateUploadSessionDto,
+  ) {
+    return this.voiceProfileService.createUploadSession(user.id, dto);
+  }
+
+  @Post('complete-upload')
+  @ApiOperation({ summary: 'Create voice profile from uploaded sample object keys' })
+  completeUpload(
+    @CurrentUser() user: { id: string },
+    @Body() dto: CompleteUploadVoiceProfileDto,
+  ) {
+    return this.voiceProfileService.createWithUploadedKeys(user.id, dto);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List voice profiles' })
-  list(@CurrentUser() user: { id: string }) {
-    return this.voiceProfileService.list(user.id);
+  async list(
+    @CurrentUser() user: { id: string },
+    @Query() query: PaginationQueryDto,
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.voiceProfileService.list(user.id, page, limit);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
   }
 
   @Get(':id')

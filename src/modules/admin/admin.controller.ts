@@ -1,10 +1,36 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { AdminService } from './admin.service';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
+import { CurrentUser } from '../../common/decorators/currentuser.decorator';
+import { AdminFeedbackQueryDto } from './dto/admin-feedback-query.dto';
+import { AdminStoriesQueryDto } from './dto/admin-stories-query.dto';
+import { AdminTransactionsQueryDto } from './dto/admin-transactions-query.dto';
+import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
+import { FeatureStoryDto } from './dto/feature-story.dto';
+import { RangeQueryDto } from './dto/range-query.dto';
+import { RespondFeedbackDto } from './dto/respond-feedback.dto';
+import { UpdateProviderKeyDto } from './dto/update-provider-key.dto';
+import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto';
+import { UpsertTemplateDto } from './dto/upsert-template.dto';
+import { CreateAdminDto } from './dto/create-admin.dto';
+import { AdminLoginDto } from './dto/admin-login.dto';
+import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('Admin')
 @ApiBearerAuth('firebaseauth')
@@ -13,23 +39,221 @@ import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Public()
+  @Post('login')
+  @ApiOperation({ summary: 'Admin login using email and password' })
+  login(@Body() dto: AdminLoginDto) {
+    return this.adminService.login(dto);
+  }
+
+  @Public()
+  @Post('create')
+  @ApiOperation({ summary: 'Bootstrap first admin with setup key' })
+  createAdmin(
+    @Body() dto: CreateAdminDto,
+    @Headers('x-admin-setup-key') setupKey?: string,
+  ) {
+    return this.adminService.createAdmin(dto, setupKey);
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Admin overview stats' })
   stats() {
     return this.adminService.overview();
   }
 
-  @Get('users')
-  @ApiOperation({ summary: 'List users (admin)' })
-  async users(@Query() query: PaginationQueryDto) {
+  @Get('dashboard/overview')
+  @ApiOperation({ summary: 'Dashboard overview with growth deltas' })
+  dashboardOverview(@Query() query: RangeQueryDto) {
+    return this.adminService.dashboardOverview(query.range ?? '30d');
+  }
+
+  @Get('dashboard/revenue')
+  @ApiOperation({ summary: 'Revenue series for dashboard chart' })
+  dashboardRevenue(@Query() query: RangeQueryDto) {
+    return this.adminService.dashboardRevenue(query.range ?? '30d');
+  }
+
+  @Get('dashboard/user-growth')
+  @ApiOperation({ summary: 'User growth series for dashboard chart' })
+  dashboardUserGrowth(@Query() query: RangeQueryDto) {
+    return this.adminService.dashboardUserGrowth(query.range ?? '30d');
+  }
+
+  @Get('dashboard/recent-activity')
+  @ApiOperation({ summary: 'Recent activity feed with pagination' })
+  async dashboardRecentActivity(@Query() query: PaginationQueryDto) {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 20);
-    const res = await this.adminService.listUsers(page, limit);
+    const res = await this.adminService.dashboardRecentActivity(page, limit);
     return buildPaginatedResponse({
       items: res.items,
       total: res.total,
       page,
       limit,
     });
+  }
+
+  @Get('users')
+  @ApiOperation({ summary: 'List users (admin)' })
+  async users(@Query() query: AdminUsersQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.adminService.listUsers(page, limit, query);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
+  @Patch('users/:id/status')
+  @ApiOperation({ summary: 'Enable or disable user' })
+  updateUserStatus(@Param('id') id: string, @Body() dto: UpdateUserStatusDto) {
+    return this.adminService.updateUserStatus(id, dto);
+  }
+
+  @Delete('users/:id')
+  @ApiOperation({ summary: 'Soft delete user' })
+  deleteUser(@Param('id') id: string) {
+    return this.adminService.deleteUser(id);
+  }
+
+  @Get('stories')
+  @ApiOperation({ summary: 'Admin story listing with filters and summary' })
+  async stories(@Query() query: AdminStoriesQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.adminService.listStories(page, limit, query);
+    return {
+      ...buildPaginatedResponse({
+        items: res.items,
+        total: res.total,
+        page,
+        limit,
+      }),
+      summary: res.summary,
+    };
+  }
+
+  @Patch('stories/:id/feature')
+  @ApiOperation({ summary: 'Mark story featured/unfeatured' })
+  updateStoryFeature(@Param('id') id: string, @Body() dto: FeatureStoryDto) {
+    return this.adminService.updateStoryFeature(id, dto.isFeatured);
+  }
+
+  @Get('templates')
+  @ApiOperation({ summary: 'Admin template list' })
+  async templates(@Query() query: PaginationQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.adminService.listTemplates(page, limit);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
+  @Post('templates')
+  @ApiOperation({ summary: 'Create story template' })
+  createTemplate(@Body() dto: UpsertTemplateDto) {
+    return this.adminService.createTemplate(dto);
+  }
+
+  @Patch('templates/:id')
+  @ApiOperation({ summary: 'Update story template' })
+  updateTemplate(@Param('id') id: string, @Body() dto: Partial<UpsertTemplateDto>) {
+    return this.adminService.updateTemplate(id, dto);
+  }
+
+  @Delete('templates/:id')
+  @ApiOperation({ summary: 'Archive template' })
+  deleteTemplate(@Param('id') id: string) {
+    return this.adminService.archiveTemplate(id);
+  }
+
+  @Get('subscriptions/overview')
+  @ApiOperation({ summary: 'Subscription overview and plan distribution' })
+  subscriptionsOverview(@Query() query: RangeQueryDto) {
+    return this.adminService.subscriptionsOverview(query.range ?? '30d');
+  }
+
+  @Get('subscriptions/transactions')
+  @ApiOperation({ summary: 'Subscription/payment transactions list' })
+  async subscriptionTransactions(@Query() query: AdminTransactionsQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.adminService.subscriptionTransactions(
+      page,
+      limit,
+      query,
+    );
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
+  @Get('settings/providers')
+  @ApiOperation({ summary: 'Provider key status list' })
+  settingsProviders() {
+    return this.adminService.getProviderSettings();
+  }
+
+  @Patch('settings/providers/:provider')
+  @ApiOperation({ summary: 'Rotate provider API key' })
+  updateProviderKey(
+    @Param('provider') provider: string,
+    @Body() dto: UpdateProviderKeyDto,
+  ) {
+    return this.adminService.updateProviderKey(provider, dto.apiKey);
+  }
+
+  @Get('settings/subscription-plans')
+  @ApiOperation({ summary: 'Get configurable subscription plans' })
+  getSubscriptionPlans() {
+    return this.adminService.getSubscriptionPlanSettings();
+  }
+
+  @Patch('settings/subscription-plans/:code')
+  @ApiOperation({ summary: 'Update subscription plan settings' })
+  updateSubscriptionPlan(
+    @Param('code') code: string,
+    @Body() dto: UpdateSubscriptionPlanDto,
+  ) {
+    return this.adminService.updateSubscriptionPlanSetting(code, dto);
+  }
+
+  @Get('feedback')
+  @ApiOperation({ summary: 'Feedback moderation list' })
+  async feedback(@Query() query: AdminFeedbackQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.adminService.listFeedback(page, limit, query);
+    return buildPaginatedResponse({
+      items: res.items,
+      total: res.total,
+      page,
+      limit,
+    });
+  }
+
+  @Patch('feedback/:id/respond')
+  @ApiOperation({ summary: 'Respond to feedback item' })
+  respondFeedback(
+    @Param('id') id: string,
+    @Body() dto: RespondFeedbackDto,
+    @CurrentUser() user: { email?: string; id: string },
+  ) {
+    return this.adminService.respondFeedback(
+      id,
+      dto,
+      user.email ?? user.id,
+    );
   }
 }
