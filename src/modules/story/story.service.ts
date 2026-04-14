@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -6,8 +7,8 @@ import {
 import { LRUCache } from 'lru-cache';
 import { API_MESSAGES } from '../../common/constants/api.messages';
 import {
+  StoryTheme,
   StoryDuration,
-  SubscriptionTier,
   UsageAction,
   ResourceType,
 } from '@prisma/client';
@@ -23,6 +24,27 @@ type GeneratedStory = {
   moralLesson?: string;
   characterNames?: string[];
 };
+
+const storyReadSelect = {
+  id: true,
+  userId: true,
+  voiceProfileId: true,
+  title: true,
+  content: true,
+  summary: true,
+  moralLesson: true,
+  promptUsed: true,
+  audioStatus: true,
+  audioUrl: true,
+  audioDuration: true,
+  audioFormat: true,
+  elevenLabsRequestId: true,
+  isFeatured: true,
+  publishedAt: true,
+  lastPlayedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class StoryService {
@@ -48,7 +70,6 @@ export class StoryService {
   }
 
   private async getMonthlyStoryLimit(params: {
-    subscriptionTier: SubscriptionTier;
     currentSubscriptionPlanId?: string | null;
   }): Promise<number> {
     const plan = params.currentSubscriptionPlanId
@@ -56,15 +77,41 @@ export class StoryService {
           where: { id: params.currentSubscriptionPlanId },
           select: { storiesPerMonth: true },
         })
-      : await this.prismaService.subscriptionPlan.findUnique({
-          where: { code: params.subscriptionTier },
-          select: { storiesPerMonth: true },
-        });
+      : null;
 
     return plan?.storiesPerMonth ?? 5;
   }
 
   async generate(userId: string, dto: GenerateStoryDto) {
+    const selectedTemplate = dto.templateId
+      ? await this.prismaService.storyTemplate.findFirst({
+          where: {
+            id: dto.templateId,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            theme: true,
+            ageGroup: true,
+            promptTemplate: true,
+          },
+        })
+      : null;
+
+    if (dto.templateId && !selectedTemplate) {
+      throw new BadRequestException('Template not found or inactive');
+    }
+
+    const resolvedTheme = selectedTemplate?.theme ?? dto.theme ?? StoryTheme.CUSTOM;
+    const resolvedAgeGroup =
+      selectedTemplate?.ageGroup ?? dto.ageGroup ?? ('GENERAL' as any);
+
+    if (!selectedTemplate && !dto.customPrompt && !dto.theme) {
+      throw new BadRequestException(
+        'Provide customPrompt or select theme/template for story generation',
+      );
+    }
+
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: {
@@ -81,7 +128,6 @@ export class StoryService {
     }
 
     const limit = await this.getMonthlyStoryLimit({
-      subscriptionTier: user.subscriptionTier,
       currentSubscriptionPlanId: user.currentSubscriptionPlanId,
     });
     if (user.storiesGeneratedThisMonth >= limit) {
@@ -95,23 +141,25 @@ export class StoryService {
       : null;
 
     const system = this.promptService.buildSystemPrompt({
-      ageGroup: dto.ageGroup,
+      ageGroup: resolvedAgeGroup,
       language: dto.language ?? 'en',
     });
     const userPrompt = this.promptService.buildUserPrompt({
-      theme: dto.theme,
-      ageGroup: dto.ageGroup,
+      theme: resolvedTheme,
+      ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
       child,
+      templatePrompt: selectedTemplate?.promptTemplate,
       customPrompt: dto.customPrompt,
     });
 
     const cacheKey = JSON.stringify({
-      theme: dto.theme,
-      ageGroup: dto.ageGroup,
+      theme: resolvedTheme,
+      ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
       language: dto.language ?? 'en',
       childId: child?.id ?? null,
+      templateId: selectedTemplate?.id ?? null,
       customPrompt: dto.customPrompt ?? '',
     });
 
@@ -139,8 +187,8 @@ export class StoryService {
           content: generated.content,
           summary: generated.summary,
           moralLesson: generated.moralLesson,
-          theme: dto.theme,
-          ageGroup: dto.ageGroup,
+          theme: resolvedTheme,
+          ageGroup: resolvedAgeGroup,
           duration: dto.duration ?? StoryDuration.MEDIUM,
           language: dto.language ?? 'en',
           promptUsed: userPrompt,
@@ -168,9 +216,10 @@ export class StoryService {
           tokensUsed,
           metadata: {
             model: modelUsed ?? 'gpt-4o-mini',
-            theme: dto.theme,
-            ageGroup: dto.ageGroup,
+            theme: resolvedTheme,
+            ageGroup: resolvedAgeGroup,
             duration: dto.duration ?? StoryDuration.MEDIUM,
+            templateId: selectedTemplate?.id ?? null,
           },
         },
       });
@@ -187,6 +236,7 @@ export class StoryService {
   async get(userId: string, id: string) {
     const story = await this.prismaService.story.findFirst({
       where: { id, userId },
+      select: storyReadSelect,
     });
     if (!story) throw new NotFoundException('Story not found');
     return { story: this.toStoryWithVoiceState(story) };
@@ -200,6 +250,7 @@ export class StoryService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
+        select: storyReadSelect,
       }),
       this.prismaService.story.count({ where: { userId } }),
     ]);
@@ -270,7 +321,9 @@ export class StoryService {
         skip,
         take: limit,
         include: {
-          story: true,
+          story: {
+            select: storyReadSelect,
+          },
         },
       }),
       this.prismaService.favorite.count({ where: { userId } }),
@@ -298,7 +351,9 @@ export class StoryService {
         skip,
         take: limit,
         include: {
-          story: true,
+          story: {
+            select: storyReadSelect,
+          },
         },
       }),
       this.prismaService.playHistory.groupBy({

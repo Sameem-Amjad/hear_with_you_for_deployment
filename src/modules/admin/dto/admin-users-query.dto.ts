@@ -1,6 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { SubscriptionTier } from '@prisma/client';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 
 export class AdminUsersQueryDto extends PaginationQueryDto {
@@ -9,10 +8,10 @@ export class AdminUsersQueryDto extends PaginationQueryDto {
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ enum: SubscriptionTier })
+  @ApiPropertyOptional({ description: 'Plan code filter' })
   @IsOptional()
-  @IsEnum(SubscriptionTier)
-  tier?: SubscriptionTier;
+  @IsString()
+  planCode?: string;
 
   @ApiPropertyOptional({ description: 'active | inactive' })
   @IsOptional()

@@ -19,10 +19,11 @@ export class StoryPromptService {
   }
 
   buildUserPrompt(params: {
-    theme: StoryTheme;
+    theme?: StoryTheme;
     ageGroup: AgeGroup;
     duration: StoryDuration;
     child?: ChildProfile | null;
+    templatePrompt?: string;
     customPrompt?: string;
   }): string {
     const targetWords =
@@ -50,9 +51,12 @@ export class StoryPromptService {
     }
 
     return [
-      `Theme: ${params.theme}`,
+      params.theme ? `Theme: ${params.theme}` : '',
       `Age group: ${params.ageGroup}`,
       `Length (words): ${targetWords}`,
+      params.templatePrompt
+        ? `Template instructions:\n${params.templatePrompt}`
+        : '',
       ...(childBits.length ? ['Personalization:', ...childBits] : []),
       params.customPrompt ? `Extra instructions: ${params.customPrompt}` : '',
       `Output JSON with keys: title, content, summary, moralLesson, characterNames(array).`,

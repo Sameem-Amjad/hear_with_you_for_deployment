@@ -40,6 +40,12 @@ export class UpdateSubscriptionPlanDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  audioGenerationsPerMonth?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsObject()
   storeProductIds?: { ios?: string; android?: string };
 

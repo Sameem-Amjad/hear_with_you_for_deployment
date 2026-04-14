@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FeedbackType, Prisma, StoryTheme, SubscriptionTier } from '@prisma/client';
+import { FeedbackType, Prisma, StoryTheme } from '@prisma/client';
 import { AdminAuthService } from './services/admin-auth.service';
 import { AdminDashboardService } from './services/admin-dashboard.service';
 import { AdminFeedbackService } from './services/admin-feedback.service';
@@ -55,7 +55,7 @@ export class AdminService {
   listUsers(
     page = 1,
     limit = 20,
-    filters?: { search?: string; tier?: SubscriptionTier; status?: string },
+    filters?: { search?: string; planCode?: string; status?: string },
   ) {
     return this.managementService.listUsers(page, limit, filters);
   }
@@ -119,7 +119,7 @@ export class AdminService {
     limit = 20,
     filters?: {
       search?: string;
-      tier?: SubscriptionTier;
+      planCode?: string;
       status?: string;
       from?: string;
       to?: string;

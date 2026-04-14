@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -17,6 +18,27 @@ export class AudioService {
     private readonly elevenLabsService: ElevenLabsService,
     private readonly audioProcessor: AudioProcessorService,
   ) {}
+
+  private async getMonthlyAudioLimit(userId: string): Promise<number> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: {
+        currentSubscriptionPlanId: true,
+        subscriptionTier: true,
+      },
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    const plan = user.currentSubscriptionPlanId
+      ? await this.prismaService.subscriptionPlan.findUnique({
+          where: { id: user.currentSubscriptionPlanId },
+          select: { audioGenerationsPerMonth: true },
+        })
+      : null;
+
+    return plan?.audioGenerationsPerMonth ?? 5;
+  }
 
   async generateForStory(params: {
     userId: string;
@@ -38,6 +60,17 @@ export class AudioService {
     });
     if (!voiceProfile?.elevenLabsVoiceId) {
       throw new BadRequestException('Voice profile is not ready for TTS');
+    }
+
+    const user = await this.prismaService.user.findUnique({
+      where: { id: params.userId },
+      select: { audioGeneratedThisMonth: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const audioLimit = await this.getMonthlyAudioLimit(params.userId);
+    if (user.audioGeneratedThisMonth >= audioLimit) {
+      throw new ForbiddenException('Monthly audio generation limit reached');
     }
 
     await this.prismaService.story.update({
@@ -101,6 +134,11 @@ export class AudioService {
               chunks: chunks.length,
             },
           },
+        });
+
+        await tx.user.update({
+          where: { id: params.userId },
+          data: { audioGeneratedThisMonth: { increment: 1 } },
         });
 
         return s;

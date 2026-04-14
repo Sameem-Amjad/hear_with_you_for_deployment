@@ -63,4 +63,46 @@ export class StoryGenerationService {
         : null,
     };
   }
+
+  async getJobStatus(userId: string, queueJobId: string) {
+    const queueJob = await this.prismaService.queueJob.findFirst({
+      where: {
+        id: queueJobId,
+        userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        queue: true,
+        type: true,
+        jobId: true,
+        error: true,
+        result: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!queueJob) {
+      throw new NotFoundException('Queue job not found');
+    }
+
+    const result = (queueJob.result ?? null) as
+      | { storyId?: string }
+      | null;
+
+    return {
+      queueJob: {
+        id: queueJob.id,
+        status: queueJob.status,
+        queue: queueJob.queue,
+        type: queueJob.type,
+        jobId: queueJob.jobId,
+        error: queueJob.error,
+        createdAt: queueJob.createdAt,
+        updatedAt: queueJob.updatedAt,
+      },
+      storyId: result?.storyId ?? null,
+    };
+  }
 }

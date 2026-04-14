@@ -39,4 +39,13 @@ export class StoryGenerationController {
   status(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.storyGenerationService.getStatus(user.id, id);
   }
+
+  @Get('jobs/:queueJobId')
+  @ApiOperation({ summary: 'Get story generation queue job status' })
+  jobStatus(
+    @CurrentUser() user: { id: string },
+    @Param('queueJobId') queueJobId: string,
+  ) {
+    return this.storyGenerationService.getJobStatus(user.id, queueJobId);
+  }
 }

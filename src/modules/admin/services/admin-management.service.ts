@@ -4,7 +4,6 @@ import {
   Prisma,
   StoryTheme,
   SubscriptionStatus,
-  SubscriptionTier,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminSettingsService } from './admin-settings.service';
@@ -20,13 +19,19 @@ export class AdminManagementService {
   async listUsers(
     page = 1,
     limit = 20,
-    filters?: { search?: string; tier?: SubscriptionTier; status?: string },
+    filters?: { search?: string; planCode?: string; status?: string },
   ) {
     const skip = (page - 1) * limit;
 
     const where: Prisma.UserWhereInput = {
       isDeleted: false,
-      ...(filters?.tier ? { subscriptionTier: filters.tier } : {}),
+      ...(filters?.planCode
+        ? {
+            currentSubscriptionPlan: {
+              code: filters.planCode,
+            },
+          }
+        : {}),
       ...(filters?.status === 'active'
         ? { isActive: true }
         : filters?.status === 'inactive'
@@ -59,6 +64,13 @@ export class AdminManagementService {
           isActive: true,
           subscriptionTier: true,
           subscriptionStatus: true,
+          currentSubscriptionPlanId: true,
+          currentSubscriptionPlan: {
+            select: {
+              code: true,
+              displayName: true,
+            },
+          },
           createdAt: true,
           lastActiveAt: true,
           _count: {
@@ -82,6 +94,8 @@ export class AdminManagementService {
         name: user.name,
         isActive: user.isActive,
         subscriptionTier: user.subscriptionTier,
+        subscriptionPlanCode: user.currentSubscriptionPlan?.code ?? null,
+        subscriptionPlanName: user.currentSubscriptionPlan?.displayName ?? null,
         subscriptionStatus: user.subscriptionStatus,
         voicesCount: user._count.voiceProfiles,
         storiesCount: user._count.stories,
@@ -285,7 +299,7 @@ export class AdminManagementService {
     const currentStart = new Date(now.getTime() - days * 86400000);
     const previousStart = new Date(currentStart.getTime() - days * 86400000);
 
-    const [currentRows, previousRows, activeUsers, usersForDistribution] =
+    const [currentRows, previousRows, activeUsers, usersForDistribution, plans] =
       await this.prismaService.$transaction([
         this.prismaService.payment.findMany({
           where: {
@@ -306,20 +320,33 @@ export class AdminManagementService {
         }),
         this.prismaService.user.findMany({
           where: { isDeleted: false },
-          select: { subscriptionTier: true },
+          select: { currentSubscriptionPlanId: true },
+        }),
+        this.prismaService.subscriptionPlan.findMany({
+          select: {
+            id: true,
+            code: true,
+            displayName: true,
+            displayPrice: true,
+            isActive: true,
+          },
         }),
       ]);
 
     const currentRevenue = currentRows.reduce((sum, p) => sum + p.amount, 0);
     const previousRevenue = previousRows.reduce((sum, p) => sum + p.amount, 0);
-    const groupedUsers = Object.values(SubscriptionTier).map((tier) => {
-      const users = usersForDistribution.filter(
-        (u) => u.subscriptionTier === tier,
-      ).length;
-      return { subscriptionTier: tier, users };
-    });
-    const totalUsers = groupedUsers.reduce((sum, g) => sum + g.users, 0);
-    const plans = await this.settingsService.getSubscriptionPlanSettings();
+    const usersByPlanId = new Map<string, number>();
+    for (const user of usersForDistribution) {
+      if (!user.currentSubscriptionPlanId) continue;
+      usersByPlanId.set(
+        user.currentSubscriptionPlanId,
+        (usersByPlanId.get(user.currentSubscriptionPlanId) ?? 0) + 1,
+      );
+    }
+    const totalUsers = Array.from(usersByPlanId.values()).reduce(
+      (sum, users) => sum + users,
+      0,
+    );
 
     return {
       monthlyRevenue: {
@@ -329,16 +356,16 @@ export class AdminManagementService {
       activeSubscriptions: {
         value: activeUsers,
       },
-      planDistribution: groupedUsers.map((g) => ({
-        tier: g.subscriptionTier,
-        users: g.users,
+      planDistribution: plans.map((plan) => ({
+        planId: plan.id,
+        code: plan.code,
+        displayName: plan.displayName,
+        users: usersByPlanId.get(plan.id) ?? 0,
+        isActive: plan.isActive,
         percent: totalUsers
-          ? Number(((g.users / totalUsers) * 100).toFixed(2))
+          ? Number((((usersByPlanId.get(plan.id) ?? 0) / totalUsers) * 100).toFixed(2))
           : 0,
-        displayPrice:
-          plans.planSettings?.[g.subscriptionTier]?.displayPrice ??
-          this.settingsService.getPlanDefaults()[g.subscriptionTier]?.displayPrice ??
-          0,
+        displayPrice: plan.displayPrice,
       })),
     };
   }
@@ -348,7 +375,7 @@ export class AdminManagementService {
     limit = 20,
     filters?: {
       search?: string;
-      tier?: SubscriptionTier;
+      planCode?: string;
       status?: string;
       from?: string;
       to?: string;
@@ -370,7 +397,7 @@ export class AdminManagementService {
           }
         : {}),
       ...(createdAt ? { createdAt } : {}),
-      ...(filters?.tier ? { user: { subscriptionTier: filters.tier } } : {}),
+      ...(filters?.planCode ? { user: { currentSubscriptionPlan: { code: filters.planCode } } } : {}),
       ...(filters?.search
         ? {
             OR: [
@@ -403,6 +430,13 @@ export class AdminManagementService {
               email: true,
               profilePicture: true,
               subscriptionTier: true,
+              currentSubscriptionPlanId: true,
+              currentSubscriptionPlan: {
+                select: {
+                  code: true,
+                  displayName: true,
+                },
+              },
             },
           },
         },

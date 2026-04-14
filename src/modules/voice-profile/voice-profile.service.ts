@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { parseBuffer } from 'music-metadata';
-import { Prisma, SubscriptionTier, VoiceStatus } from '@prisma/client';
+import { Prisma, VoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
@@ -25,26 +25,10 @@ export class VoiceProfileService {
     private readonly elevenLabsService: ElevenLabsService,
   ) {}
 
-  private defaultVoiceLimitForTier(tier: SubscriptionTier): number {
-    switch (tier) {
-      case SubscriptionTier.FREE:
-        return 1;
-      case SubscriptionTier.PREMIUM:
-        return 3;
-      case SubscriptionTier.PLATINUM:
-        return 10;
-      case SubscriptionTier.ENTERPRISE:
-        return 10;
-      default:
-        return 10;
-    }
-  }
-
   private async getUserSubscription(userId: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: {
-        subscriptionTier: true,
         currentSubscriptionPlanId: true,
         isDeleted: true,
         isActive: true,
@@ -64,19 +48,15 @@ export class VoiceProfileService {
           where: { id: user.currentSubscriptionPlanId },
           select: { voiceProfiles: true },
         })
-      : await this.prismaService.subscriptionPlan.findUnique({
-          where: { code: user.subscriptionTier },
-          select: { voiceProfiles: true },
-        });
+      : null;
 
-    const maxVoices =
-      plan?.voiceProfiles ?? this.defaultVoiceLimitForTier(user.subscriptionTier);
+    const maxVoices = plan?.voiceProfiles ?? 1;
     const existingCount = await this.prismaService.voiceProfile.count({
       where: { userId, isActive: true },
     });
     if (existingCount >= maxVoices) {
       throw new ForbiddenException(
-        'Voice profile limit reached for your subscription tier',
+        'Voice profile limit reached for your subscription plan',
       );
     }
   }

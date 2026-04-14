@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { SubscriptionStatus, SubscriptionTier } from '@prisma/client';
+import { SubscriptionStatus } from '@prisma/client';
 
 export enum IapPlatform {
   IOS = 'IOS',
@@ -25,6 +25,7 @@ export class ValidateIapReceiptDto {
 
   @ApiProperty({ description: 'Store transaction id' })
   @IsString()
+  @IsOptional()
   transactionId: string;
 
   @ApiPropertyOptional({ description: 'Google Play purchase token' })
@@ -32,13 +33,7 @@ export class ValidateIapReceiptDto {
   @IsString()
   purchaseToken?: string;
 
-  @ApiPropertyOptional({ enum: SubscriptionTier })
-  @IsOptional()
-  @IsEnum(SubscriptionTier)
-  tier?: SubscriptionTier;
-
   @ApiPropertyOptional({ description: 'Backend plan id from /subscription/plans' })
-  @IsOptional()
   @IsString()
   planId?: string;
 

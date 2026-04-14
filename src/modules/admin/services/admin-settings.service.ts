@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CredentialProvider, SubscriptionTier } from '@prisma/client';
+import { CredentialProvider } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProviderCredentialsService } from '../../provider-credentials/provider-credentials.service';
 
@@ -22,6 +22,7 @@ export class AdminSettingsService {
         currency: 'USD',
         storiesPerMonth: 5,
         voiceProfiles: 1,
+        audioGenerationsPerMonth: 5,
         isActive: true,
         storeProductIds: { ios: '', android: '' },
       },
@@ -33,6 +34,7 @@ export class AdminSettingsService {
         currency: 'USD',
         storiesPerMonth: 50,
         voiceProfiles: 3,
+        audioGenerationsPerMonth: 50,
         isActive: true,
         storeProductIds: { ios: '', android: '' },
       },
@@ -46,6 +48,7 @@ export class AdminSettingsService {
         currency: 'USD',
         storiesPerMonth: 1000000,
         voiceProfiles: 10,
+        audioGenerationsPerMonth: 1000000,
         isActive: true,
         storeProductIds: { ios: '', android: '' },
       },
@@ -59,6 +62,7 @@ export class AdminSettingsService {
         currency: 'USD',
         storiesPerMonth: 1000000,
         voiceProfiles: 10,
+        audioGenerationsPerMonth: 1000000,
         isActive: false,
         storeProductIds: { ios: '', android: '' },
       },
@@ -124,16 +128,17 @@ export class AdminSettingsService {
     await this.prismaService.$transaction(
       Object.values(defaults).map((plan) =>
         this.prismaService.subscriptionPlan.upsert({
-          where: { code: plan.code as SubscriptionTier },
+          where: { code: plan.code as any },
           create: {
             id: plan.id,
-            code: plan.code as SubscriptionTier,
+            code: plan.code as any,
             displayName: plan.displayName,
             displayPrice: plan.displayPrice,
             currency: plan.currency,
             billingPeriod: plan.code === 'FREE' ? 'none' : 'month',
             storiesPerMonth: plan.storiesPerMonth,
             voiceProfiles: plan.voiceProfiles,
+            audioGenerationsPerMonth: plan.audioGenerationsPerMonth,
             storeProductIdIos: plan.storeProductIds.ios,
             storeProductIdAndroid: plan.storeProductIds.android,
             isActive: plan.isActive,
@@ -145,24 +150,25 @@ export class AdminSettingsService {
 
     const rows = await this.prismaService.subscriptionPlan.findMany();
     const fromDb = Object.fromEntries(
-      rows.map((row) => [
-        row.code,
-        {
-          id: row.id,
-          code: row.code,
-          displayName: row.displayName,
-          displayPrice: row.displayPrice,
-          currency: row.currency,
-          billingPeriod: row.billingPeriod,
-          storiesPerMonth: row.storiesPerMonth,
-          voiceProfiles: row.voiceProfiles,
+      rows.map((row): [string, any] => {
+        const planRow = row as any;
+        return [planRow.code, {
+          id: planRow.id,
+          code: planRow.code,
+          displayName: planRow.displayName,
+          displayPrice: planRow.displayPrice,
+          currency: planRow.currency,
+          billingPeriod: planRow.billingPeriod,
+          storiesPerMonth: planRow.storiesPerMonth,
+          voiceProfiles: planRow.voiceProfiles,
+          audioGenerationsPerMonth: planRow.audioGenerationsPerMonth,
           storeProductIds: {
-            ios: row.storeProductIdIos ?? '',
-            android: row.storeProductIdAndroid ?? '',
+            ios: planRow.storeProductIdIos ?? '',
+            android: planRow.storeProductIdAndroid ?? '',
           },
-          isActive: row.isActive,
-        },
-      ]),
+          isActive: planRow.isActive,
+        }];
+      }),
     );
 
     return {
@@ -181,20 +187,30 @@ export class AdminSettingsService {
       currency?: string;
       storiesPerMonth?: number;
       voiceProfiles?: number;
+      audioGenerationsPerMonth?: number;
       storeProductIds?: { ios?: string; android?: string };
       isActive?: boolean;
     },
   ) {
     const normalized = code.toUpperCase();
-    const supported = ['FREE', 'PREMIUM', 'PLATINUM', 'ENTERPRISE'];
-    if (!supported.includes(normalized)) {
-      throw new BadRequestException('Unsupported plan code');
-    }
 
     const existing = await this.getSubscriptionPlanSettings();
     const currentPlan =
       (existing.planSettings?.[normalized] as Record<string, unknown> | undefined) ??
-      this.getPlanDefaults()[normalized];
+      this.getPlanDefaults()[normalized] ??
+      {
+        id: `plan_${normalized.toLowerCase()}`,
+        code: normalized,
+        displayName: normalized,
+        displayPrice: 0,
+        currency: 'USD',
+        billingPeriod: 'month',
+        storiesPerMonth: 5,
+        voiceProfiles: 1,
+        audioGenerationsPerMonth: 5,
+        isActive: true,
+        storeProductIds: { ios: '', android: '' },
+      };
 
     const updatedPlan = {
       ...currentPlan,
@@ -203,12 +219,12 @@ export class AdminSettingsService {
     };
 
     await this.prismaService.subscriptionPlan.upsert({
-      where: { code: normalized as SubscriptionTier },
+      where: { code: normalized as any },
       create: {
         id:
           (updatedPlan.id as string | undefined) ??
           `plan_${normalized.toLowerCase()}`,
-        code: normalized as SubscriptionTier,
+        code: normalized as any,
         displayName:
           (updatedPlan.displayName as string | undefined) ?? normalized,
         displayPrice: Number(updatedPlan.displayPrice ?? 0),
@@ -218,6 +234,7 @@ export class AdminSettingsService {
           (normalized === 'FREE' ? 'none' : 'month'),
         storiesPerMonth: Number(updatedPlan.storiesPerMonth ?? 5),
         voiceProfiles: Number(updatedPlan.voiceProfiles ?? 1),
+        audioGenerationsPerMonth: Number(updatedPlan.audioGenerationsPerMonth ?? 5),
         storeProductIdIos:
           (updatedPlan.storeProductIds as { ios?: string } | undefined)?.ios ??
           '',
@@ -241,6 +258,10 @@ export class AdminSettingsService {
         voiceProfiles:
           updatedPlan.voiceProfiles !== undefined
             ? Number(updatedPlan.voiceProfiles)
+            : undefined,
+        audioGenerationsPerMonth:
+          updatedPlan.audioGenerationsPerMonth !== undefined
+            ? Number(updatedPlan.audioGenerationsPerMonth)
             : undefined,
         storeProductIdIos:
           (updatedPlan.storeProductIds as { ios?: string } | undefined)?.ios ??

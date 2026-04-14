@@ -41,7 +41,7 @@ export const API_MESSAGES = {
       GENERATED: 'Story generated successfully',
     },
     ERROR: {
-      LIMIT_REACHED: 'Monthly story limit reached for your subscription tier',
+      LIMIT_REACHED: 'Monthly story limit reached for your subscription plan',
     },
   },
 } as const;
