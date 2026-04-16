@@ -10,7 +10,6 @@ export class GenerateAudioDto {
     description:
       'Optional voice profile id; if omitted uses story.voiceProfileId',
   })
-  @IsOptional()
   @IsString()
-  voiceProfileId?: string;
+  voiceProfileId: string;
 }

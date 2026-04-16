@@ -7,6 +7,7 @@ import {
 import { LRUCache } from 'lru-cache';
 import { API_MESSAGES } from '../../common/constants/api.messages';
 import {
+  AudioStatus,
   StoryTheme,
   StoryDuration,
   UsageAction,
@@ -29,13 +30,13 @@ const storyReadSelect = {
   voiceProfileId: true,
   title: true,
   content: true,
+  isFeatured: true,
   promptUsed: true,
   audioStatus: true,
   audioUrl: true,
   audioDuration: true,
   audioFormat: true,
   elevenLabsRequestId: true,
-  isFeatured: true,
   publishedAt: true,
   lastPlayedAt: true,
   createdAt: true,
@@ -56,10 +57,16 @@ export class StoryService {
   ) {}
 
   private toStoryWithVoiceState<T extends { audioStatus?: string; audioUrl?: string | null }>(
-    story: T,
+    story: T & { isFeatured?: boolean },
   ) {
+    story = {
+      ...story,
+      isFavorite:story.isFeatured,
+    };
+    delete story.isFeatured;
     return {
       ...story,
+
       isVoiceStoryCreated:
         story.audioStatus === 'COMPLETED' && Boolean(story.audioUrl),
     };
@@ -201,24 +208,24 @@ export class StoryService {
         },
       });
 
-      await tx.usageHistory.create({
-        data: {
-          userId,
-          resourceType: ResourceType.STORY,
-          resourceId: created.id,
-          action: UsageAction.GENERATED,
-          tokensUsed,
-          metadata: {
-            model: modelUsed ?? 'gpt-4o-mini',
-            theme: resolvedTheme,
-            ageGroup: resolvedAgeGroup,
-            duration: dto.duration ?? StoryDuration.MEDIUM,
-            templateId: selectedTemplate?.id ?? null,
-          },
-        },
-      });
-
       return created;
+    });
+
+    await this.prismaService.usageHistory.create({
+      data: {
+        userId,
+        resourceType: ResourceType.STORY,
+        resourceId: story.id,
+        action: UsageAction.GENERATED,
+        tokensUsed,
+        metadata: {
+          model: modelUsed ?? 'gpt-4o-mini',
+          theme: resolvedTheme,
+          ageGroup: resolvedAgeGroup,
+          duration: dto.duration ?? StoryDuration.MEDIUM,
+          templateId: selectedTemplate?.id ?? null,
+        },
+      },
     });
 
     return {
@@ -236,18 +243,55 @@ export class StoryService {
     return { story: this.toStoryWithVoiceState(story) };
   }
 
-  async list(userId: string, page = 1, limit = 20) {
+  async list(
+    userId: string,
+    page = 1,
+    limit = 20,
+    options?: { favorite?: boolean; recent?: boolean },
+  ) {
     const skip = (page - 1) * limit;
+    const where = {
+      userId,
+      ...(options?.favorite ? { isFeatured: true } : {}),
+      ...(options?.recent ? { audioStatus: AudioStatus.COMPLETED } : {}),
+    };
+
     const [items, total] = await this.prismaService.$transaction([
       this.prismaService.story.findMany({
-        where: { userId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
         select: storyReadSelect,
       }),
-      this.prismaService.story.count({ where: { userId } }),
+      this.prismaService.story.count({ where }),
     ]);
+    return {
+      items: items.map((item) => this.toStoryWithVoiceState(item)),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async listAiGenerated(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const where = {
+      userId,
+      // audioStatus: AudioStatus.PENDING,
+    };
+
+    const [items, total] = await this.prismaService.$transaction([
+      this.prismaService.story.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: storyReadSelect,
+      }),
+      this.prismaService.story.count({ where }),
+    ]);
+
     return {
       items: items.map((item) => this.toStoryWithVoiceState(item)),
       total,
@@ -259,75 +303,53 @@ export class StoryService {
   async addFavorite(userId: string, storyId: string) {
     const story = await this.prismaService.story.findFirst({
       where: { id: storyId, userId },
-      select: { id: true },
+      select: { id: true, isFeatured: true },
     });
     if (!story) throw new NotFoundException('Story not found');
 
-    const favorite = await this.prismaService.favorite.upsert({
-      where: {
-        userId_storyId: {
-          userId,
-          storyId,
-        },
-      },
-      update: {},
-      create: {
-        userId,
-        storyId,
-      },
+    const updatedStory = await this.prismaService.story.update({
+      where: { id: storyId },
+      data: { isFeatured: true },
+      select: { id: true, isFeatured: true, updatedAt: true },
     });
 
-    return { message: 'Added to favorites', favorite };
+    return { message: 'Added to favorites', story: updatedStory };
   }
 
   async removeFavorite(userId: string, storyId: string) {
-    const favorite = await this.prismaService.favorite.findUnique({
-      where: {
-        userId_storyId: {
-          userId,
-          storyId,
-        },
-      },
-      select: { id: true },
+    const story = await this.prismaService.story.findFirst({
+      where: { id: storyId, userId },
+      select: { id: true, isFeatured: true },
     });
 
-    if (!favorite) {
-      return { message: 'Removed from favorites' };
+    if (!story) {
+      throw new NotFoundException('Story not found');
     }
 
-    await this.prismaService.favorite.delete({
-      where: {
-        userId_storyId: {
-          userId,
-          storyId,
-        },
-      },
+    const updatedStory = await this.prismaService.story.update({
+      where: { id: storyId },
+      data: { isFeatured: false },
+      select: { id: true, isFeatured: true, updatedAt: true },
     });
-    return { message: 'Removed from favorites' };
+
+    return { message: 'Removed from favorites', story: updatedStory };
   }
 
   async listFavorites(userId: string, page = 1, limit = 20) {
     const skip = (page - 1) * limit;
     const [items, total] = await this.prismaService.$transaction([
-      this.prismaService.favorite.findMany({
-        where: { userId },
+      this.prismaService.story.findMany({
+        where: { userId, isFeatured: true },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: {
-          story: {
-            select: storyReadSelect,
-          },
-        },
+        select: storyReadSelect,
       }),
-      this.prismaService.favorite.count({ where: { userId } }),
+      this.prismaService.story.count({ where: { userId, isFeatured: true } }),
     ]);
 
     return {
-      items: items.map((item) => ({
-        favoritedAt: item.createdAt,
-        story: this.toStoryWithVoiceState(item.story),
-      })),
+      items: items.map((item) => this.toStoryWithVoiceState(item)),
       total,
       page,
       limit,
@@ -357,25 +379,13 @@ export class StoryService {
       }),
     ]);
 
-    const storyIds = recentPlays.map((item) => item.storyId);
-    const favorites = storyIds.length
-      ? await this.prismaService.favorite.findMany({
-          where: {
-            userId,
-            storyId: { in: storyIds },
-          },
-          select: { storyId: true },
-        })
-      : [];
-    const favoriteSet = new Set(favorites.map((f) => f.storyId));
-
     return {
       items: recentPlays.map((item) => ({
         story: this.toStoryWithVoiceState(item.story),
         playedAt: item.playedAt,
         playbackPositionSeconds: item.duration,
         completionRate: item.completionRate,
-        isFavorite: favoriteSet.has(item.storyId),
+        isFavorite: item.story.isFeatured,
       })),
       total: grouped.length,
       page,

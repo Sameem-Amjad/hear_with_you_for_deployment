@@ -110,7 +110,7 @@ export class ElevenLabsService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`ElevenLabs TTS failed: ${message}`);
-      throw new Error('ElevenLabs TTS failed');
+      throw new Error(`ElevenLabs TTS failed: ${message}`);
     }
   }
 }

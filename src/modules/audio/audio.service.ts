@@ -8,7 +8,6 @@ import { AudioStatus, ResourceType, UsageAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
-import { AudioProcessorService } from './audio-processor.service';
 
 @Injectable()
 export class AudioService {
@@ -16,7 +15,6 @@ export class AudioService {
     private readonly prismaService: PrismaService,
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
-    private readonly audioProcessor: AudioProcessorService,
   ) {}
 
   private async getMonthlyAudioLimit(userId: string): Promise<number> {
@@ -50,9 +48,28 @@ export class AudioService {
     });
     if (!story) throw new NotFoundException('Story not found');
 
-    const voiceProfileId = params.voiceProfileId ?? story.voiceProfileId;
+    const voiceProfileId = params.voiceProfileId;
     if (!voiceProfileId) {
       throw new BadRequestException('Voice profile is required');
+    }
+
+    if (
+      story.audioStatus === AudioStatus.COMPLETED &&
+      story.audioUrl &&
+      story.voiceProfileId === voiceProfileId
+    ) {
+      return {
+        message: 'Audio already generated for this story and voice profile',
+        story,
+      };
+    }
+
+    if (story.audioStatus === AudioStatus.PROCESSING) {
+      throw new BadRequestException('Audio generation is already in progress');
+    }
+
+    if (!story.content?.trim()) {
+      throw new BadRequestException('Story content is empty');
     }
 
     const voiceProfile = await this.prismaService.voiceProfile.findFirst({
@@ -78,28 +95,22 @@ export class AudioService {
       data: { audioStatus: AudioStatus.PROCESSING, audioError: null },
     });
 
-    const chunks = this.audioProcessor.chunkText(story.content, 5000);
-    const buffers: Buffer[] = [];
-    let totalChars = 0;
+    const text = story.content.trim();
+    const totalChars = text.length;
 
     try {
-      for (const chunk of chunks) {
-        totalChars += chunk.length;
-        const buf = await this.elevenLabsService.textToSpeech({
-          voiceId: voiceProfile.elevenLabsVoiceId,
-          text: chunk,
-          modelId: voiceProfile.elevenLabsModelId ?? undefined,
-          voiceSettings: {
-            stability: voiceProfile.stability,
-            similarity_boost: voiceProfile.similarityBoost,
-            style: voiceProfile.style,
-            use_speaker_boost: voiceProfile.useSpeakerBoost,
-          },
-        });
-        buffers.push(buf);
-      }
+      const audioBuffer = await this.elevenLabsService.textToSpeech({
+        voiceId: voiceProfile.elevenLabsVoiceId,
+        text,
+        modelId: voiceProfile.elevenLabsModelId ?? undefined,
+        voiceSettings: {
+          stability: voiceProfile.stability,
+          similarity_boost: voiceProfile.similarityBoost,
+          style: voiceProfile.style,
+          use_speaker_boost: voiceProfile.useSpeakerBoost,
+        },
+      });
 
-      const audioBuffer = Buffer.concat(buffers);
       const uploaded = await this.storageService.uploadAudioBuffer({
         buffer: audioBuffer,
         folder: `audio/${params.userId}/${story.id}`,
@@ -131,7 +142,7 @@ export class AudioService {
             storageUsed: uploaded.size,
             metadata: {
               voiceProfileId: voiceProfile.id,
-              chunks: chunks.length,
+              chunks: 1,
             },
           },
         });
@@ -151,6 +162,18 @@ export class AudioService {
         where: { id: story.id },
         data: { audioStatus: AudioStatus.FAILED, audioError: message },
       });
+
+      const normalized = message.toLowerCase();
+      if (
+        normalized.includes('quota_exceeded') ||
+        normalized.includes('credits are required') ||
+        normalized.includes('insufficient')
+      ) {
+        throw new ForbiddenException(
+          'ElevenLabs quota exceeded. Please top up or upgrade your ElevenLabs plan.',
+        );
+      }
+
       throw new BadRequestException('Audio generation failed');
     }
   }
