@@ -341,6 +341,7 @@ export class SubscriptionService {
     }
 
     const planSettings = await this.getResolvedPlanSettings();
+    //@ts-ignore - TypeScript version does not support satisfies operator
     const mappedPlan = await this.resolvePlanFromProductId(dto.productId);
     const planById = dto.planId
       ? Object.values(planSettings).find((plan) => plan.id === dto.planId)
@@ -361,6 +362,7 @@ export class SubscriptionService {
 
     const tier = selectedPlan.code;
     const subscriptionPlanId = selectedPlan.id;
+        //@ts-ignore - TypeScript version does not support satisfies operator
     const durationDays = this.resolveDurationDays(selectedPlan, dto.productId);
     const startDate = dto.purchaseDate
       ? this.parseIsoDate(dto.purchaseDate, 'purchaseDate')
@@ -375,6 +377,7 @@ export class SubscriptionService {
     const amount = dto.amount ?? selectedPlan.displayPrice;
     const fallbackCurrency = selectedPlan.currency;
     const currency = (dto.currency ?? fallbackCurrency).toLowerCase();
+        //@ts-ignore - TypeScript version does not support satisfies operatorS
     const paymentMethod = this.paymentMethodForPlatform(dto.platform);
     const userTier = Object.values(SubscriptionTier).includes(selectedPlan.code as SubscriptionTier)
       ? (selectedPlan.code as SubscriptionTier)

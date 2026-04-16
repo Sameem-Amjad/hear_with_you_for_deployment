@@ -8,13 +8,23 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { changePct, parseRangeDays } from '../utils/admin-metrics.util';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class AdminManagementService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly settingsService: AdminSettingsService,
+    private readonly storageService: StorageService,
   ) {}
+
+  private async resolveProfilePicture(profilePicture?: string | null) {
+    if (!profilePicture) {
+      return profilePicture;
+    }
+
+    return this.storageService.resolveAccessibleUrl(profilePicture);
+  }
 
   async listUsers(
     page = 1,
@@ -85,23 +95,25 @@ export class AdminManagementService {
     ]);
 
     return {
-      items: items.map((user) => ({
-        id: user.id,
-        profilePicture: user.profilePicture,
-        email: user.email,
-        phone: user.phone,
-        username: user.username,
-        name: user.name,
-        isActive: user.isActive,
-        subscriptionTier: user.subscriptionTier,
-        subscriptionPlanCode: user.currentSubscriptionPlan?.code ?? null,
-        subscriptionPlanName: user.currentSubscriptionPlan?.displayName ?? null,
-        subscriptionStatus: user.subscriptionStatus,
-        voicesCount: user._count.voiceProfiles,
-        storiesCount: user._count.stories,
-        createdAt: user.createdAt,
-        lastActiveAt: user.lastActiveAt,
-      })),
+      items: await Promise.all(
+        items.map(async (user) => ({
+          id: user.id,
+          profilePicture: await this.resolveProfilePicture(user.profilePicture),
+          email: user.email,
+          phone: user.phone,
+          username: user.username,
+          name: user.name,
+          isActive: user.isActive,
+          subscriptionTier: user.subscriptionTier,
+          subscriptionPlanCode: user.currentSubscriptionPlan?.code ?? null,
+          subscriptionPlanName: user.currentSubscriptionPlan?.displayName ?? null,
+          subscriptionStatus: user.subscriptionStatus,
+          voicesCount: user._count.voiceProfiles,
+          storiesCount: user._count.stories,
+          createdAt: user.createdAt,
+          lastActiveAt: user.lastActiveAt,
+        })),
+      ),
       total,
       page,
       limit,
@@ -445,17 +457,26 @@ export class AdminManagementService {
     ]);
 
     return {
-      items: items.map((payment) => ({
-        id: payment.id,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        paymentMethod: payment.paymentMethod,
-        createdAt: payment.createdAt,
-        paidAt: payment.paidAt,
-        user: payment.user,
-        metadata: payment.metadata,
-      })),
+      items: await Promise.all(
+        items.map(async (payment) => ({
+          id: payment.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: payment.status,
+          paymentMethod: payment.paymentMethod,
+          createdAt: payment.createdAt,
+          paidAt: payment.paidAt,
+          user: payment.user
+            ? {
+                ...payment.user,
+                profilePicture: await this.resolveProfilePicture(
+                  payment.user.profilePicture,
+                ),
+              }
+            : payment.user,
+          metadata: payment.metadata,
+        })),
+      ),
       total,
       page,
       limit,

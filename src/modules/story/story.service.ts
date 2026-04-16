@@ -20,8 +20,6 @@ import { GenerateStoryDto } from './dto/generate-story.dto';
 type GeneratedStory = {
   title: string;
   content: string;
-  summary?: string;
-  moralLesson?: string;
   characterNames?: string[];
 };
 
@@ -31,8 +29,6 @@ const storyReadSelect = {
   voiceProfileId: true,
   title: true,
   content: true,
-  summary: true,
-  moralLesson: true,
   promptUsed: true,
   audioStatus: true,
   audioUrl: true,
@@ -185,8 +181,6 @@ export class StoryService {
           childProfileId: child?.id,
           title: generated.title,
           content: generated.content,
-          summary: generated.summary,
-          moralLesson: generated.moralLesson,
           theme: resolvedTheme,
           ageGroup: resolvedAgeGroup,
           duration: dto.duration ?? StoryDuration.MEDIUM,

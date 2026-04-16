@@ -13,6 +13,7 @@ import { OtpService } from '../otp/otp.service';
 import { MailService } from '../mail/mail.service';
 import { SmsService } from '../sms/sms.service';
 import { ActivityService } from '../activity/activity.service';
+import { StorageService } from '../storage/storage.service';
 import { UserResponseDto } from '../user/dto/userresponse.dto';
 import { SocialLoginDto } from './dto/sociallogin.dto';
 import { EmailRegisterDto } from './dto/emailregister.dto';
@@ -41,7 +42,19 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly smsService: SmsService,
     private readonly activityService: ActivityService,
+    private readonly storageService: StorageService,
   ) {}
+
+  private async buildUserResponse(user: User): Promise<UserResponseDto> {
+    const profilePicture = user.profilePicture
+      ? await this.storageService.resolveAccessibleUrl(user.profilePicture)
+      : user.profilePicture;
+
+    return UserResponseDto.fromUser({
+      ...user,
+      profilePicture,
+    });
+  }
 
   async socialLogin(dto: SocialLoginDto) {
     const decoded = await this.firebaseService.verifyIdToken(dto.idToken);
@@ -103,7 +116,7 @@ export class AuthService {
       message: isNewUser
         ? API_MESSAGES.AUTH.SUCCESS.SOCIAL_LOGIN_NEW
         : API_MESSAGES.AUTH.SUCCESS.SOCIAL_LOGIN_EXISTING,
-      user: UserResponseDto.fromUser(user),
+      user: await this.buildUserResponse(user),
       token,
       isNewUser,
     };
@@ -200,7 +213,7 @@ export class AuthService {
 
       return {
         message: API_MESSAGES.AUTH.SUCCESS.REGISTRATION_SUCCESS,
-        user: UserResponseDto.fromUser(user),
+        user: await this.buildUserResponse(user),
         token,
       };
     } catch (error) {
@@ -367,7 +380,7 @@ export class AuthService {
 
       return {
         message: API_MESSAGES.AUTH.SUCCESS.REGISTRATION_SUCCESS,
-        user: UserResponseDto.fromUser(user),
+        user: await this.buildUserResponse(user),
         token,
       };
     } catch (error) {
@@ -420,7 +433,7 @@ export class AuthService {
 
     return {
       message: API_MESSAGES.AUTH.SUCCESS.LOGIN_SUCCESS,
-      user: UserResponseDto.fromUser(updatedUser),
+      user: await this.buildUserResponse(updatedUser),
       token,
     };
   }

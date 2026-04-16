@@ -10,7 +10,7 @@ export enum IapPlatform {
 export class ValidateIapReceiptDto {
   @ApiProperty({ enum: IapPlatform })
   @IsEnum(IapPlatform)
-  platform: IapPlatform;
+  platform?: IapPlatform;
 
   @ApiPropertyOptional({
     description: 'Opaque receipt/token payload from mobile SDK (stored as metadata)',
@@ -21,12 +21,12 @@ export class ValidateIapReceiptDto {
 
   @ApiProperty({ description: 'Store product id' })
   @IsString()
-  productId: string;
+  productId?: string;
 
   @ApiProperty({ description: 'Store transaction id' })
   @IsString()
   @IsOptional()
-  transactionId: string;
+  transactionId?: string;
 
   @ApiPropertyOptional({ description: 'Google Play purchase token' })
   @IsOptional()

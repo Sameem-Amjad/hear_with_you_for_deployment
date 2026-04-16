@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { normalizeEmail } from '../../../common/utils/sanitizers.util';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class AdminAuthService {
@@ -15,7 +16,16 @@ export class AdminAuthService {
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
     private readonly firebaseService: FirebaseService,
+    private readonly storageService: StorageService,
   ) {}
+
+  private async resolveProfilePicture(profilePicture?: string | null) {
+    if (!profilePicture) {
+      return profilePicture;
+    }
+
+    return this.storageService.resolveAccessibleUrl(profilePicture);
+  }
 
   private async generateUniqueUsername(seed?: string): Promise<string> {
     const normalizedSeed = (seed ?? 'admin')
@@ -90,7 +100,7 @@ export class AdminAuthService {
         email: user.email,
         name: user.name,
         username: user.username,
-        profilePicture: user.profilePicture,
+        profilePicture: await this.resolveProfilePicture(user.profilePicture),
       },
     };
   }
@@ -188,7 +198,10 @@ export class AdminAuthService {
       return {
         message:
           'Admin user created in database. Bootstrap endpoint is now disabled.',
-        admin,
+        admin: {
+          ...admin,
+          profilePicture: await this.resolveProfilePicture(admin.profilePicture),
+        },
       };
     } catch (error) {
       await this.firebaseService.deleteUser(firebaseUser.uid).catch(() => undefined);

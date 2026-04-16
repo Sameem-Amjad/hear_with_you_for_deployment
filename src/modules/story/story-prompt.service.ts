@@ -13,7 +13,6 @@ export class StoryPromptService {
       `You are a children's storyteller.`,
       `Write in language: ${params.language}.`,
       `Keep content safe, positive, and age-appropriate for ${params.ageGroup}.`,
-      `Include a clear moral lesson.`,
       `Make it suitable for reading aloud (natural rhythm).`,
     ].join('\n');
   }
@@ -59,7 +58,7 @@ export class StoryPromptService {
         : '',
       ...(childBits.length ? ['Personalization:', ...childBits] : []),
       params.customPrompt ? `Extra instructions: ${params.customPrompt}` : '',
-      `Output JSON with keys: title, content, summary, moralLesson, characterNames(array).`,
+      `Output JSON with keys: title, content, characterNames(array).`,
     ]
       .filter(Boolean)
       .join('\n');

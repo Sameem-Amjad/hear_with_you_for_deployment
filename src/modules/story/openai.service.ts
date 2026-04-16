@@ -30,7 +30,7 @@ export class OpenAiService {
     const res = await client.chat.completions.create({
       model,
       temperature: params.temperature ?? 0.8,
-      max_tokens: params.maxTokens ?? 2000,
+      max_tokens: params.maxTokens ?? 1200,
       messages: [
         { role: 'system', content: params.system },
         { role: 'user', content: params.user },

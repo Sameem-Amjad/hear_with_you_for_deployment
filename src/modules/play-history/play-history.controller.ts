@@ -1,18 +1,39 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 import { UpsertPlayHistoryDto } from './dto/upsert-play-history.dto';
 import { PlayHistoryService } from './play-history.service';
+import { StorageService } from '../storage/storage.service';
 
 @ApiTags('PlayHistory')
 @ApiBearerAuth('firebaseauth')
 @UseGuards(FirebaseAuthGuard)
 @Controller('play-history')
 export class PlayHistoryController {
-  constructor(private readonly playHistoryService: PlayHistoryService) {}
+  constructor(
+    private readonly playHistoryService: PlayHistoryService,
+    private readonly storageService: StorageService,
+  ) {}
+
+  private async wrapUrl(url?: string | null): Promise<string | null> {
+    if (!url) {
+      return url ?? null;
+    }
+
+    return this.storageService.resolveAccessibleUrl(url);
+  }
 
   @Post()
   @ApiOperation({ summary: 'Save playback progress' })
@@ -25,6 +46,7 @@ export class PlayHistoryController {
   async continueListening(
     @CurrentUser() user: { id: string },
     @Query() query: PaginationQueryDto,
+    @Req() request: Request,
   ) {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 20);
@@ -34,8 +56,18 @@ export class PlayHistoryController {
       limit,
     );
 
+    const items = await Promise.all(
+      res.items.map(async (item) => ({
+        ...item,
+        story: {
+          ...item.story,
+          audioUrl: await this.wrapUrl(item.story?.audioUrl),
+        },
+      })),
+    );
+
     return buildPaginatedResponse({
-      items: res.items,
+      items,
       total: res.total,
       page,
       limit,

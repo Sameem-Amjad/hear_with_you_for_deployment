@@ -192,13 +192,53 @@ export class StorageService {
     return {
       key,
       uploadUrl,
-      publicUrl: this.getPublicUrlFromKey(key),
+      publicUrl: await this.getSignedReadUrlFromKey(key),
       expiresInSeconds,
     };
   }
 
   getPublicUrlFromKey(key: string): string {
     return `https://${this.bucket}.${this.region}.digitaloceanspaces.com/${key}`;
+  }
+
+  buildAccessUrl(baseUrl: string, value: string): string {
+    const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+    return `${normalizedBaseUrl}/storage/access?url=${encodeURIComponent(value)}`;
+  }
+
+  async getSignedReadUrlFromKey(
+    key: string,
+    expiresInSeconds = 3600,
+  ): Promise<string> {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+      {
+        expiresIn: expiresInSeconds,
+      },
+    );
+  }
+
+  private extractKey(value: string): string {
+    try {
+      const parsed = new URL(value);
+      return decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+    } catch {
+      return decodeURIComponent(value.replace(/^\//, ''));
+    }
+  }
+
+  async resolveAccessibleUrl(
+    value: string,
+    expiresInSeconds = 3600,
+  ): Promise<string> {
+    return this.getSignedReadUrlFromKey(
+      this.extractKey(value),
+      expiresInSeconds,
+    );
   }
 
   async assertObjectExists(key: string): Promise<void> {

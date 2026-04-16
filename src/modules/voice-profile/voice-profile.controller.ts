@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -20,6 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
+import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
@@ -29,6 +31,7 @@ import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
 import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
 import { VoiceProfileService } from './voice-profile.service';
+import { StorageService } from '../storage/storage.service';
 
 const multerOptions = {
   storage: memoryStorage(),
@@ -40,37 +43,98 @@ const multerOptions = {
 @UseGuards(FirebaseAuthGuard)
 @Controller('voice-profiles')
 export class VoiceProfileController {
-  constructor(private readonly voiceProfileService: VoiceProfileService) {}
+  constructor(
+    private readonly voiceProfileService: VoiceProfileService,
+    private readonly storageService: StorageService,
+  ) {}
+
+  private async wrapUrl(url?: string | null): Promise<string | null> {
+    if (!url) {
+      return url ?? null;
+    }
+
+    return this.storageService.resolveAccessibleUrl(url);
+  }
+
+  private async wrapVoiceProfile(voiceProfile: any) {
+    const wrappedUrls = await Promise.all(
+      (Array.isArray(voiceProfile.sampleAudioUrls)
+        ? voiceProfile.sampleAudioUrls
+        : []
+      ).map((url: string) => this.storageService.resolveAccessibleUrl(url)),
+    );
+
+    return {
+      ...voiceProfile,
+      sampleAudioUrls: wrappedUrls,
+    };
+  }
+
+  private async wrapUploadSession(uploadSession: any) {
+    if (!uploadSession?.publicUrl) {
+      return uploadSession;
+    }
+
+    return {
+      ...uploadSession,
+      publicUrl: await this.wrapUrl(uploadSession.publicUrl),
+    };
+  }
 
   @Post()
   @UseInterceptors(FilesInterceptor('samples', 5, multerOptions))
   @ApiOperation({ summary: 'Create voice profile (clone)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: CreateVoiceProfileDto })
-  create(
+  async create(
     @CurrentUser() user: { id: string },
     @Body() dto: CreateVoiceProfileDto,
     @UploadedFiles() files: Express.Multer.File[],
+    @Req() request: Request,
   ) {
-    return this.voiceProfileService.createWithSamples(user.id, dto, files);
+    const res = await this.voiceProfileService.createWithSamples(
+      user.id,
+      dto,
+      files,
+    );
+
+    return {
+      ...res,
+      voiceProfile: await this.wrapVoiceProfile(res.voiceProfile),
+    };
   }
 
   @Post('upload-sessions')
   @ApiOperation({ summary: 'Create DigitalOcean Spaces presigned upload URL' })
-  createUploadSession(
+  async createUploadSession(
     @CurrentUser() user: { id: string },
     @Body() dto: CreateUploadSessionDto,
+    @Req() request: Request,
   ) {
-    return this.voiceProfileService.createUploadSession(user.id, dto);
+    const res = await this.voiceProfileService.createUploadSession(user.id, dto);
+
+    return {
+      ...res,
+      uploadSession: await this.wrapUploadSession(res.uploadSession),
+    };
   }
 
   @Post('complete-upload')
   @ApiOperation({ summary: 'Create voice profile from uploaded sample object keys' })
-  completeUpload(
+  async completeUpload(
     @CurrentUser() user: { id: string },
     @Body() dto: CompleteUploadVoiceProfileDto,
+    @Req() request: Request,
   ) {
-    return this.voiceProfileService.createWithUploadedKeys(user.id, dto);
+    const res = await this.voiceProfileService.createWithUploadedKeys(
+      user.id,
+      dto,
+    );
+
+    return {
+      ...res,
+      voiceProfile: await this.wrapVoiceProfile(res.voiceProfile),
+    };
   }
 
   @Get()
@@ -78,12 +142,21 @@ export class VoiceProfileController {
   async list(
     @CurrentUser() user: { id: string },
     @Query() query: PaginationQueryDto,
+    @Req() request: Request,
   ) {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 20);
     const res = await this.voiceProfileService.list(user.id, page, limit);
+
+    const items = await Promise.all( res.items.map((item) =>
+      this.wrapUrl(item.sampleAudioUrl).then((url) => ({
+        ...item,
+        sampleAudioUrl: url,
+      })),
+    ));
+
     return buildPaginatedResponse({
-      items: res.items,
+      items,
       total: res.total,
       page,
       limit,
@@ -92,18 +165,30 @@ export class VoiceProfileController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get voice profile' })
-  get(@CurrentUser() user: { id: string }, @Param('id') id: string) {
-    return this.voiceProfileService.get(user.id, id);
+  async get(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Req() request: Request,
+  ) {
+    const res = await this.voiceProfileService.get(user.id, id);
+    return {
+      voiceProfile: await this.wrapVoiceProfile(res.voiceProfile),
+    };
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update voice profile' })
-  update(
+  async update(
     @CurrentUser() user: { id: string },
     @Param('id') id: string,
     @Body() dto: UpdateVoiceProfileDto,
+    @Req() request: Request,
   ) {
-    return this.voiceProfileService.update(user.id, id, dto);
+    const res = await this.voiceProfileService.update(user.id, id, dto);
+    return {
+      ...res,
+      voiceProfile: await this.wrapVoiceProfile(res.voiceProfile),
+    };
   }
 
   @Delete(':id')

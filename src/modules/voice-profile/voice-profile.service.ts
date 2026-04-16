@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { parseBuffer } from 'music-metadata';
-import { Prisma, VoiceStatus } from '@prisma/client';
+import { Prisma, VoiceProfile, VoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
@@ -24,6 +24,14 @@ export class VoiceProfileService {
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
   ) {}
+
+  private async resolveSampleAudioUrls(
+    urls: VoiceProfile['sampleAudioUrls'],
+  ): Promise<string[]> {
+    return Promise.all(
+      urls.map((url) => this.storageService.resolveAccessibleUrl(url)),
+    );
+  }
 
   private async getUserSubscription(userId: string) {
     const user = await this.prismaService.user.findUnique({
@@ -110,7 +118,12 @@ export class VoiceProfileService {
 
       return {
         message: 'Voice profile created',
-        voiceProfile: updated,
+        voiceProfile: {
+          ...updated,
+          sampleAudioUrls: await this.resolveSampleAudioUrls(
+            updated.sampleAudioUrls,
+          ),
+        },
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -283,18 +296,24 @@ export class VoiceProfileService {
     ]);
 
     return {
-      items: items.map((item) => ({
-        id: item.id,
-        userId: item.userId,
-        name: item.name,
-        description: item.description,
-        elevenLabsVoiceId: item.elevenLabsVoiceId,
-        sampleAudioUrl: item.sampleAudioUrls[0] ?? null,
-        isActive: item.isActive,
-        lastUsedAt: item.lastUsedAt,
-        updatedAt: item.updatedAt,
-        storiesCount: item._count.stories,
-      })),
+      items: await Promise.all(
+        items.map(async (item) => ({
+          id: item.id,
+          userId: item.userId,
+          name: item.name,
+          description: item.description,
+          elevenLabsVoiceId: item.elevenLabsVoiceId,
+          sampleAudioUrl: item.sampleAudioUrls[0]
+            ? await this.storageService.resolveAccessibleUrl(
+                item.sampleAudioUrls[0],
+              )
+            : null,
+          isActive: item.isActive,
+          lastUsedAt: item.lastUsedAt,
+          updatedAt: item.updatedAt,
+          storiesCount: item._count.stories,
+        })),
+      ),
       total,
       page,
       limit,
@@ -307,7 +326,12 @@ export class VoiceProfileService {
     });
     if (!voice || voice.userId !== userId)
       throw new NotFoundException('Voice profile not found');
-    return { voiceProfile: voice };
+    return {
+      voiceProfile: {
+        ...voice,
+        sampleAudioUrls: await this.resolveSampleAudioUrls(voice.sampleAudioUrls),
+      },
+    };
   }
 
   async update(userId: string, id: string, dto: UpdateVoiceProfileDto) {
@@ -339,7 +363,13 @@ export class VoiceProfileService {
       where: { id },
       data,
     });
-    return { message: 'Voice profile updated', voiceProfile: updated };
+    return {
+      message: 'Voice profile updated',
+      voiceProfile: {
+        ...updated,
+        sampleAudioUrls: await this.resolveSampleAudioUrls(updated.sampleAudioUrls),
+      },
+    };
   }
 
   async remove(userId: string, id: string) {

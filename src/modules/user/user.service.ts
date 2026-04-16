@@ -20,6 +20,17 @@ export class UserService {
     private readonly activityService: ActivityService,
   ) {}
 
+  private async buildUserResponse(user: User): Promise<UserResponseDto> {
+    const profilePicture = user.profilePicture
+      ? await this.storageService.resolveAccessibleUrl(user.profilePicture)
+      : user.profilePicture;
+
+    return UserResponseDto.fromUser({
+      ...user,
+      profilePicture,
+    });
+  }
+
   async setupProfile(
     userId: string,
     dto: SetupProfileDto,
@@ -57,13 +68,13 @@ export class UserService {
 
     return {
       message: API_MESSAGES.USER.SUCCESS.PROFILE_SETUP,
-      user: UserResponseDto.fromUser(user),
+      user: await this.buildUserResponse(user),
     };
   }
 
   async getCurrentProfile(userId: string) {
     const user = await this.findActiveUserById(userId);
-    return { user: UserResponseDto.fromUser(user) };
+    return { user: await this.buildUserResponse(user) };
   }
 
   async updateProfile(
@@ -103,7 +114,7 @@ export class UserService {
 
     return {
       message: API_MESSAGES.USER.SUCCESS.PROFILE_UPDATED,
-      user: UserResponseDto.fromUser(user),
+      user: await this.buildUserResponse(user),
     };
   }
 
