@@ -8,6 +8,7 @@ import { LRUCache } from 'lru-cache';
 import { API_MESSAGES } from '../../common/constants/api.messages';
 import {
   AudioStatus,
+  SubscriptionTier,
   StoryTheme,
   StoryDuration,
   UsageAction,
@@ -45,6 +46,9 @@ const storyReadSelect = {
 
 @Injectable()
 export class StoryService {
+  private static readonly FREE_TIER_MAX_TOKENS = 100;
+  private static readonly PAID_TIER_MAX_TOKENS = 1000;
+
   private readonly cache = new LRUCache<string, GeneratedStory>({
     max: 5000,
     ttl: 5 * 60 * 1000,
@@ -83,6 +87,12 @@ export class StoryService {
       : null;
 
     return plan?.storiesPerMonth ?? 5;
+  }
+
+  private getPerRequestTokenCap(tier: SubscriptionTier): number {
+    return tier === SubscriptionTier.FREE
+      ? StoryService.FREE_TIER_MAX_TOKENS
+      : StoryService.PAID_TIER_MAX_TOKENS;
   }
 
   async generate(userId: string, dto: GenerateStoryDto) {
@@ -156,6 +166,8 @@ export class StoryService {
       customPrompt: dto.customPrompt,
     });
 
+    const maxTokens = this.getPerRequestTokenCap(user.subscriptionTier);
+
     const cacheKey = JSON.stringify({
       theme: resolvedTheme,
       ageGroup: resolvedAgeGroup,
@@ -164,6 +176,7 @@ export class StoryService {
       childId: child?.id ?? null,
       templateId: selectedTemplate?.id ?? null,
       customPrompt: dto.customPrompt ?? '',
+      maxTokens,
     });
 
     let generated = this.cache.get(cacheKey);
@@ -174,6 +187,7 @@ export class StoryService {
       const res = await this.openAiService.generateJson({
         system,
         user: userPrompt,
+        maxTokens,
       });
       tokensUsed = res.tokensUsed;
       modelUsed = res.model;
