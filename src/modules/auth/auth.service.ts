@@ -164,6 +164,10 @@ export class AuthService {
 
   async verifyEmailRegistration(dto: VerifyEmailRegisterDto) {
     const email = normalizeEmail(dto.email);
+    const name = dto.name.trim();
+    if (name.length < 2) {
+      throw new BadRequestException('Name must be at least 2 characters long');
+    }
     await this.ensureEmailNotRegistered(email);
     const otpResult = await this.otpService.verifyOtp(
       email,
@@ -191,6 +195,7 @@ export class AuthService {
             provider: AuthProvider.EMAIL,
             isProfileComplete: false,
             lastActiveAt: new Date(),
+            name,
           },
         });
 

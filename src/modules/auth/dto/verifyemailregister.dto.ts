@@ -20,6 +20,13 @@ export class VerifyEmailRegisterDto {
   @IsEmail()
   email: string;
 
+  @ApiProperty()
+  @Transform(({ value }) => trimString(String(value)))
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
+  name: string;
+
   @ApiProperty({ example: '123456' })
   @Transform(({ value }) => trimString(String(value)))
   @IsString()
