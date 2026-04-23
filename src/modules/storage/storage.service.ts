@@ -9,6 +9,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -231,6 +232,10 @@ export class StorageService {
     }
   }
 
+  getObjectKeyFromUrlOrKey(value: string): string {
+    return this.extractKey(value);
+  }
+
   async resolveAccessibleUrl(
     value: string,
     expiresInSeconds = 3600,
@@ -285,5 +290,61 @@ export class StorageService {
     } catch (error) {
       this.logger.warn(`Failed to delete file ${fileUrl}: ${String(error)}`);
     }
+  }
+
+  async deleteFileByKey(key: string): Promise<void> {
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        }),
+      );
+      this.logger.log(`Deleted file ${key}`);
+    } catch (error) {
+      this.logger.warn(`Failed to delete file ${key}: ${String(error)}`);
+    }
+  }
+
+  async listObjectsByPrefix(prefix: string): Promise<
+    Array<{
+      key: string;
+      lastModified: Date | null;
+      size: number | null;
+    }>
+  > {
+    const objects: Array<{
+      key: string;
+      lastModified: Date | null;
+      size: number | null;
+    }> = [];
+
+    let continuationToken: string | undefined;
+
+    do {
+      const response = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      for (const object of response.Contents ?? []) {
+        if (!object.Key) {
+          continue;
+        }
+
+        objects.push({
+          key: object.Key,
+          lastModified: object.LastModified ?? null,
+          size: typeof object.Size === 'number' ? object.Size : null,
+        });
+      }
+
+      continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+
+    return objects;
   }
 }

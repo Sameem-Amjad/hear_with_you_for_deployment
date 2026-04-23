@@ -25,6 +25,7 @@ import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
 import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
@@ -192,6 +193,7 @@ export class VoiceProfileController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Delete voice profile' })
   remove(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.voiceProfileService.remove(user.id, id);

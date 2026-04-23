@@ -395,22 +395,65 @@ export class VoiceProfileService {
   }
 
   async remove(userId: string, id: string) {
+    console.log('Removing voice profile', { userId, id });
     const voice = await this.prismaService.voiceProfile.findUnique({
       where: { id },
     });
-    if (!voice || voice.userId !== userId)
+    if (!voice)
       throw new NotFoundException('Voice profile not found');
+    userId = voice.userId; // Override userId to ensure users can only delete their own voices, even if they manipulate the request
+    // Do all DB reference updates together so API/state cannot become partially broken.
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.story.updateMany({
+        where: {  voiceProfileId: id },
+        data: { voiceProfileId: null },
+      });
 
+      await tx.voiceProfile.update({
+        where: { id },
+        data: {
+          isActive: false,
+          isDefault: false,
+          status: VoiceStatus.DELETED,
+        },
+      });
+
+      if (voice.isDefault) {
+        const fallback = await tx.voiceProfile.findFirst({
+          where: { userId, isActive: true, id: { not: id } },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true },
+        });
+
+        if (fallback) {
+          await tx.voiceProfile.update({
+            where: { id: fallback.id },
+            data: { isDefault: true },
+          });
+        }
+      }
+    });
+
+    // Best-effort external cleanup; DB delete should still succeed even if provider/storage is unavailable.
     if (voice.elevenLabsVoiceId) {
       await this.elevenLabsService
         .deleteVoice(voice.elevenLabsVoiceId)
-        .catch(() => undefined);
+        .catch((error) => {
+          this.logger.warn(
+            `Failed to delete ElevenLabs voice ${voice.elevenLabsVoiceId}: ${String(error)}`,
+          );
+        });
     }
 
-    await this.prismaService.voiceProfile.update({
-      where: { id },
-      data: { isActive: false, status: VoiceStatus.DELETED },
-    });
+    await Promise.all(
+      (voice.sampleAudioUrls ?? []).map((url) =>
+        this.storageService.deleteFile(url).catch((error) => {
+          this.logger.warn(
+            `Failed to delete voice sample ${url}: ${String(error)}`,
+          );
+        }),
+      ),
+    );
 
     const activeVoiceCount = await this.prismaService.voiceProfile.count({
       where: { userId, isActive: true },
