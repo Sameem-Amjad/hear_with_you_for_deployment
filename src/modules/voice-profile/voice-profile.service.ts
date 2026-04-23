@@ -25,6 +25,21 @@ export class VoiceProfileService {
     private readonly elevenLabsService: ElevenLabsService,
   ) {}
 
+  private toClientVoiceProfile<T extends { type?: unknown; typeCode?: number }>(
+    profile: T,
+  ) {
+    const { typeCode, type, ...rest } = profile as T & {
+      typeCode?: number;
+      type?: unknown;
+    };
+
+    return {
+      ...rest,
+      type: typeCode ?? 0,
+      profileType: type,
+    };
+  }
+
   private async resolveSampleAudioUrls(
     urls: VoiceProfile['sampleAudioUrls'],
   ): Promise<string[]> {
@@ -73,6 +88,7 @@ export class VoiceProfileService {
     userId: string;
     name: string;
     description?: string;
+    typeCode?: number;
     sampleAudioUrls: string[];
     sampleDuration: number;
     filesForClone: Array<{
@@ -86,6 +102,7 @@ export class VoiceProfileService {
         userId: params.userId,
         name: params.name,
         description: params.description,
+        typeCode: params.typeCode ?? 0,
         sampleAudioUrls: params.sampleAudioUrls,
         sampleDuration: params.sampleDuration || undefined,
         status: VoiceStatus.PROCESSING,
@@ -118,12 +135,12 @@ export class VoiceProfileService {
 
       return {
         message: 'Voice profile created',
-        voiceProfile: {
+        voiceProfile: this.toClientVoiceProfile({
           ...updated,
           sampleAudioUrls: await this.resolveSampleAudioUrls(
             updated.sampleAudioUrls,
           ),
-        },
+        }),
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -212,6 +229,7 @@ export class VoiceProfileService {
       userId,
       name: dto.name,
       description: dto.description,
+      typeCode: dto.type,
       sampleAudioUrls,
       sampleDuration: totalDurationSeconds,
       filesForClone: cloneFiles,
@@ -278,6 +296,8 @@ export class VoiceProfileService {
           userId: true,
           name: true,
           description: true,
+          type: true,
+          typeCode: true,
           elevenLabsVoiceId: true,
           sampleAudioUrls: true,
           isActive: true,
@@ -302,6 +322,8 @@ export class VoiceProfileService {
           userId: item.userId,
           name: item.name,
           description: item.description,
+          type: item.typeCode,
+          profileType: item.type,
           elevenLabsVoiceId: item.elevenLabsVoiceId,
           sampleAudioUrl: item.sampleAudioUrls[0]
             ? await this.storageService.resolveAccessibleUrl(
@@ -327,10 +349,10 @@ export class VoiceProfileService {
     if (!voice || voice.userId !== userId)
       throw new NotFoundException('Voice profile not found');
     return {
-      voiceProfile: {
+      voiceProfile: this.toClientVoiceProfile({
         ...voice,
         sampleAudioUrls: await this.resolveSampleAudioUrls(voice.sampleAudioUrls),
-      },
+      }),
     };
   }
 
@@ -365,10 +387,10 @@ export class VoiceProfileService {
     });
     return {
       message: 'Voice profile updated',
-      voiceProfile: {
+      voiceProfile: this.toClientVoiceProfile({
         ...updated,
         sampleAudioUrls: await this.resolveSampleAudioUrls(updated.sampleAudioUrls),
-      },
+      }),
     };
   }
 

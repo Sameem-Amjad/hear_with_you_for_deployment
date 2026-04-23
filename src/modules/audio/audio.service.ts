@@ -53,17 +53,6 @@ export class AudioService {
       throw new BadRequestException('Voice profile is required');
     }
 
-    if (
-      story.audioStatus === AudioStatus.COMPLETED &&
-      story.audioUrl &&
-      story.voiceProfileId === voiceProfileId
-    ) {
-      return {
-        message: 'Audio already generated for this story and voice profile',
-        story,
-      };
-    }
-
     if (story.audioStatus === AudioStatus.PROCESSING) {
       throw new BadRequestException('Audio generation is already in progress');
     }
@@ -77,6 +66,20 @@ export class AudioService {
     });
     if (!voiceProfile?.elevenLabsVoiceId) {
       throw new BadRequestException('Voice profile is not ready for TTS');
+    }
+
+    if (
+      story.audioStatus === AudioStatus.COMPLETED &&
+      story.audioUrl &&
+      story.voiceProfileId === voiceProfileId
+    ) {
+      return {
+        message: 'Audio already generated for this story and voice profile',
+        story: {
+          ...story,
+          type: voiceProfile.typeCode ?? null,
+        },
+      };
     }
 
     const user = await this.prismaService.user.findUnique({
@@ -155,7 +158,13 @@ export class AudioService {
         return s;
       });
 
-      return { message: 'Audio generated successfully', story: updated };
+      return {
+        message: 'Audio generated successfully',
+        story: {
+          ...updated,
+          type: voiceProfile.typeCode ?? null,
+        },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.prismaService.story.update({

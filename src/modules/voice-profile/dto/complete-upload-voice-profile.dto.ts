@@ -2,10 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsInt,
   IsArray,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -21,6 +24,18 @@ export class CompleteUploadVoiceProfileDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Voice type code for mobile mapping (0-6)',
+    minimum: 0,
+    maximum: 6,
+    default: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  type?: number;
 
   @ApiPropertyOptional({ isArray: true })
   @IsOptional()

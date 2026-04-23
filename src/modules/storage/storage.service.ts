@@ -235,6 +235,11 @@ export class StorageService {
     value: string,
     expiresInSeconds = 3600,
   ): Promise<string> {
+
+    //if url is from google or other external source, return as is
+    if (/^https?:\/\//.test(value) && !value.includes(`${this.bucket}.${this.region}`)) {
+      return value;
+    }
     return this.getSignedReadUrlFromKey(
       this.extractKey(value),
       expiresInSeconds,

@@ -162,6 +162,7 @@ model VoiceProfile {
   name        String
   description String?
   type        VoiceType @default(CUSTOM) // CUSTOM, PRESET
+  typeCode    Int       @default(0) @map("type_code")
 
   // ElevenLabs Integration
   elevenLabsVoiceId String? @unique
@@ -202,6 +203,7 @@ model VoiceProfile {
   @@index([userId])
   @@index([status])
   @@index([elevenLabsVoiceId])
+  @@index([typeCode])
   @@map("voice_profiles")
 }
 

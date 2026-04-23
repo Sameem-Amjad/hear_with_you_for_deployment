@@ -195,7 +195,7 @@ export class AdminManagementService {
         take: limit,
         include: {
           user: { select: { id: true, name: true } },
-          voiceProfile: { select: { id: true, name: true } },
+          voiceProfile: { select: { id: true, name: true, typeCode: true } },
         },
       }),
       this.prismaService.story.count({ where }),
@@ -224,6 +224,7 @@ export class AdminManagementService {
         createdAt: story.createdAt,
         userName: story.user?.name,
         voiceName: story.voiceProfile?.name,
+        voiceType: story.voiceProfile?.typeCode ?? null,
         isFeatured: story.isFeatured,
       })),
       total,

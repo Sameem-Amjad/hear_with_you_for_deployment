@@ -29,6 +29,11 @@ const storyReadSelect = {
   id: true,
   userId: true,
   voiceProfileId: true,
+  voiceProfile: {
+    select: {
+      typeCode: true,
+    },
+  },
   title: true,
   content: true,
   isFeatured: true,
@@ -60,19 +65,26 @@ export class StoryService {
     private readonly openAiService: OpenAiService,
   ) {}
 
-  private toStoryWithVoiceState<T extends { audioStatus?: string; audioUrl?: string | null }>(
-    story: T & { isFeatured?: boolean },
+  private toStoryWithVoiceState<
+    T extends {
+      audioStatus?: string;
+      audioUrl?: string | null;
+      voiceProfileId?: string | null;
+      voiceProfile?: { typeCode: number } | null;
+      isFeatured?: boolean;
+    },
+  >(
+    story: T,
   ) {
-    story = {
-      ...story,
-      isFavorite:story.isFeatured,
-    };
-    delete story.isFeatured;
-    return {
-      ...story,
+    const { isFeatured, voiceProfile, ...rest } = story;
+    const type = story.voiceProfileId ? (voiceProfile?.typeCode ?? null) : null;
 
+    return {
+      ...rest,
+      isFavorite: Boolean(isFeatured),
+      type,
       isVoiceStoryCreated:
-        story.audioStatus === 'COMPLETED' && Boolean(story.audioUrl),
+        rest.audioStatus === 'COMPLETED' && Boolean(rest.audioUrl),
     };
   }
 
