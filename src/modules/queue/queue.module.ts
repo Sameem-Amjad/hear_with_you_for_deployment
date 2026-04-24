@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
@@ -13,6 +13,7 @@ import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
 import { AudioProcessorService } from '../audio/audio-processor.service';
 import { ProviderCredentialsService } from '../provider-credentials/provider-credentials.service';
 
+@Global()
 @Module({
   imports: [
     StoryModule,

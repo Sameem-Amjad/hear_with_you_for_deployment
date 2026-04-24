@@ -80,13 +80,33 @@ export class StoryService {
     const { isFeatured, voiceProfile, ...rest } = story;
     const type = story.voiceProfileId ? (voiceProfile?.typeCode ?? null) : null;
 
+    const formatAudioDuration = (durationSeconds: number): string => {
+      if (durationSeconds < 60) {
+        return `${durationSeconds} sec`;
+      }
+
+      const durationMinutes = Math.floor(durationSeconds / 60);
+      const remainingSeconds = durationSeconds % 60;
+
+      if (durationMinutes < 60) {
+        return `${durationMinutes}:${String(remainingSeconds).padStart(2, '0')} min`;
+      }
+
+      const durationHours = Math.floor(durationMinutes / 60);
+      const remainingMinutes = durationMinutes % 60;
+
+      if (durationHours < 24) {
+        return `${durationHours}:${String(remainingMinutes).padStart(2, '0')} hour`;
+      }
+
+      const durationDays = Math.floor(durationHours / 24);
+      const remainingHours = durationHours % 24;
+      return `${durationDays}:${String(remainingHours).padStart(2, '0')} day`;
+    };
+
     const audioDuration =
       typeof rest.audioDuration === 'number'
-        ? rest.audioDuration < 60
-          ? 'under 1 min'
-          : `${Math.floor(rest.audioDuration / 60)}:${String(
-              rest.audioDuration % 60,
-            ).padStart(2, '0')} min`
+        ? formatAudioDuration(rest.audioDuration)
         : null;
 
     return {
