@@ -20,19 +20,39 @@ import { ProviderCredentialsService } from '../provider-credentials/provider-cre
     AudioModule,
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST', '127.0.0.1'),
-          port: Number(configService.get<number>('REDIS_PORT', 6379)),
-          password: configService.get<string>('REDIS_PASSWORD') || undefined,
-            // tls: {}, 
-        },
-        defaultJobOptions: {
-          attempts: 3,
-          removeOnComplete: { age: 7 * 24 * 60 * 60 },
-          removeOnFail: { age: 7 * 24 * 60 * 60 },
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const maxRetries = Number(
+          configService.get<number>('REDIS_MAX_RECONNECT_RETRIES', 20),
+        );
+        const retryDelayMs = Number(
+          configService.get<number>('REDIS_RECONNECT_DELAY_MS', 2000),
+        );
+
+        return {
+          connection: {
+            host: configService.get<string>('REDIS_HOST', '127.0.0.1'),
+            port: Number(configService.get<number>('REDIS_PORT', 6379)),
+            password: configService.get<string>('REDIS_PASSWORD') || undefined,
+            connectTimeout: Number(
+              configService.get<number>('REDIS_CONNECT_TIMEOUT_MS', 10000),
+            ),
+            maxRetriesPerRequest: null,
+            enableOfflineQueue: false,
+            retryStrategy: (times: number) => {
+              if (times > maxRetries) {
+                return null;
+              }
+              return Math.min(times * retryDelayMs, 30000);
+            },
+            // tls: {},
+          },
+          defaultJobOptions: {
+            attempts: 3,
+            removeOnComplete: { age: 7 * 24 * 60 * 60 },
+            removeOnFail: { age: 7 * 24 * 60 * 60 },
+          },
+        };
+      },
     }),
     BullModule.registerQueue(
       { name: QUEUE_NAMES.STORY_GENERATION },

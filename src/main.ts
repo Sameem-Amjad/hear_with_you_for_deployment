@@ -15,6 +15,8 @@ async function bootstrap() {
   });
   const logger = new Logger('Bootstrap');
 
+  app.enableShutdownHooks();
+
   app.setGlobalPrefix(API_PATHS.V1_PREFIX);
   // Stripe webhook needs raw body for signature verification
   app.use(
