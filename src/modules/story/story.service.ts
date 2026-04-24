@@ -69,6 +69,7 @@ export class StoryService {
     T extends {
       audioStatus?: string;
       audioUrl?: string | null;
+      audioDuration?: number | null;
       voiceProfileId?: string | null;
       voiceProfile?: { typeCode: number } | null;
       isFeatured?: boolean;
@@ -79,8 +80,18 @@ export class StoryService {
     const { isFeatured, voiceProfile, ...rest } = story;
     const type = story.voiceProfileId ? (voiceProfile?.typeCode ?? null) : null;
 
+    const audioDuration =
+      typeof rest.audioDuration === 'number'
+        ? rest.audioDuration < 60
+          ? 'under 1 min'
+          : `${Math.floor(rest.audioDuration / 60)}:${String(
+              rest.audioDuration % 60,
+            ).padStart(2, '0')} min`
+        : null;
+
     return {
       ...rest,
+      audioDuration,
       isFavorite: Boolean(isFeatured),
       type,
       isVoiceStoryCreated:
