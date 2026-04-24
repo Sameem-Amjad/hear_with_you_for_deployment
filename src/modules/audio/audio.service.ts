@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import ffmpeg from 'fluent-ffmpeg';
 import ffprobeStatic from 'ffprobe-static';
-import { AudioStatus, ResourceType, UsageAction } from '@prisma/client';
+import { AudioStatus, Prisma, ResourceType, UsageAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
@@ -64,6 +64,43 @@ export class AudioService {
       : null;
 
     return plan?.audioGenerationsPerMonth ?? 5;
+  }
+
+  private async syncVoiceProfileUsage(params: {
+    tx: Prisma.TransactionClient;
+    userId: string;
+    voiceProfileId: string;
+  }): Promise<void> {
+    const [storiesCount, aggregate] = await Promise.all([
+      params.tx.story.count({
+        where: {
+          userId: params.userId,
+          voiceProfileId: params.voiceProfileId,
+          audioStatus: AudioStatus.COMPLETED,
+        },
+      }),
+      params.tx.story.aggregate({
+        where: {
+          userId: params.userId,
+          voiceProfileId: params.voiceProfileId,
+          audioStatus: AudioStatus.COMPLETED,
+        },
+        _max: {
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    await params.tx.voiceProfile.updateMany({
+      where: {
+        id: params.voiceProfileId,
+        userId: params.userId,
+      },
+      data: {
+        timesUsed: storiesCount,
+        lastUsedAt: aggregate._max.updatedAt ?? null,
+      },
+    });
   }
 
   async generateForStory(params: {
@@ -172,6 +209,22 @@ export class AudioService {
             elevenLabsCharactersUsed: totalChars,
           },
         });
+
+        const affectedVoiceProfileIds = Array.from(
+          new Set(
+            [story.voiceProfileId, voiceProfile.id].filter(
+              (id): id is string => Boolean(id),
+            ),
+          ),
+        );
+
+        for (const affectedVoiceProfileId of affectedVoiceProfileIds) {
+          await this.syncVoiceProfileUsage({
+            tx,
+            userId: params.userId,
+            voiceProfileId: affectedVoiceProfileId,
+          });
+        }
 
         await tx.usageHistory.create({
           data: {

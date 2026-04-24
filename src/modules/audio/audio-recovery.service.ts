@@ -63,11 +63,12 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     const startedAt = Date.now();
     this.logger.log('Audio recovery cycle started');
     try {
-      const recovered = await this.recoverStories();
+      const recovery = await this.recoverStories();
+      await this.reconcileVoiceProfileUsage(Array.from(recovery.affectedUserIds));
       const deleted = await this.cleanupOrphanedAudioObjects();
       const durationMs = Date.now() - startedAt;
       this.logger.log(
-        `Audio recovery cycle complete. recovered=${recovered} orphanDeleted=${deleted} durationMs=${durationMs}`,
+        `Audio recovery cycle complete. recovered=${recovery.recovered} markedFailed=${recovery.markedFailed} usersReconciled=${recovery.affectedUserIds.size} orphanDeleted=${deleted} durationMs=${durationMs}`,
       );
     } catch (error) {
       this.logger.error(
@@ -79,7 +80,11 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async recoverStories(): Promise<number> {
+  private async recoverStories(): Promise<{
+    recovered: number;
+    markedFailed: number;
+    affectedUserIds: Set<string>;
+  }> {
     const cutoffMinutes = this.getNumberEnv('AUDIO_RECOVERY_PROCESSING_MINUTES', 15);
     const cutoff = new Date(Date.now() - cutoffMinutes * 60 * 1000);
     const batchSize = this.getNumberEnv('AUDIO_RECOVERY_BATCH_SIZE', 200);
@@ -113,6 +118,7 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
 
     let recovered = 0;
     let markedFailed = 0;
+    const affectedUserIds = new Set<string>();
     for (const story of candidates) {
       const candidateKey = await this.resolveRecoverableAudioKey({
         storyId: story.id,
@@ -125,6 +131,7 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
         if (story.audioStatus === AudioStatus.PROCESSING) {
           await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING with no recoverable object in storage');
           markedFailed += 1;
+          affectedUserIds.add(story.userId);
         }
         continue;
       }
@@ -142,12 +149,14 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
           },
         });
         recovered += 1;
+        affectedUserIds.add(story.userId);
         continue;
       }
 
       if (story.audioStatus === AudioStatus.PROCESSING) {
         await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING but object no longer exists');
         markedFailed += 1;
+        affectedUserIds.add(story.userId);
       }
     }
 
@@ -155,7 +164,61 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
       `Audio story recovery done. recovered=${recovered} markedFailed=${markedFailed}`,
     );
 
-    return recovered;
+    return {
+      recovered,
+      markedFailed,
+      affectedUserIds,
+    };
+  }
+
+  private async reconcileVoiceProfileUsage(userIds: string[]): Promise<void> {
+    if (userIds.length === 0) {
+      return;
+    }
+
+    for (const userId of userIds) {
+      const usageByVoice = await this.prismaService.story.groupBy({
+        by: ['voiceProfileId'],
+        where: {
+          userId,
+          voiceProfileId: { not: null },
+          audioStatus: AudioStatus.COMPLETED,
+        },
+        _count: {
+          _all: true,
+        },
+        _max: {
+          updatedAt: true,
+        },
+      });
+
+      await this.prismaService.$transaction(async (tx) => {
+        await tx.voiceProfile.updateMany({
+          where: { userId },
+          data: {
+            timesUsed: 0,
+            lastUsedAt: null,
+          },
+        });
+
+        for (const row of usageByVoice) {
+          if (!row.voiceProfileId) {
+            continue;
+          }
+
+          await tx.voiceProfile.updateMany({
+            where: {
+              id: row.voiceProfileId,
+              userId,
+            },
+            data: {
+              timesUsed: row._count._all,
+              lastUsedAt: row._max.updatedAt ?? null,
+            },
+          });
+        }
+      });
+    }
   }
 
   private async cleanupOrphanedAudioObjects(): Promise<number> {
