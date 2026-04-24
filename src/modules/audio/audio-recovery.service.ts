@@ -114,10 +114,16 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     let recovered = 0;
     let markedFailed = 0;
     for (const story of candidates) {
-      const candidateKey = this.getStoryAudioKey(story.audioS3Key, story.audioUrl);
+      const candidateKey = await this.resolveRecoverableAudioKey({
+        storyId: story.id,
+        userId: story.userId,
+        audioS3Key: story.audioS3Key,
+        audioUrl: story.audioUrl,
+      });
+
       if (!candidateKey) {
         if (story.audioStatus === AudioStatus.PROCESSING) {
-          await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING with no audio key/url');
+          await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING with no recoverable object in storage');
           markedFailed += 1;
         }
         continue;
@@ -140,7 +146,7 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (story.audioStatus === AudioStatus.PROCESSING) {
-        await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING but no object in storage');
+        await this.markStoryFailed(story.id, 'Recovery: stale PROCESSING but object no longer exists');
         markedFailed += 1;
       }
     }
@@ -246,6 +252,59 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     }
 
     return this.storageService.getObjectKeyFromUrlOrKey(audioUrl);
+  }
+
+  private async resolveRecoverableAudioKey(params: {
+    storyId: string;
+    userId: string;
+    audioS3Key?: string | null;
+    audioUrl?: string | null;
+  }): Promise<string | null> {
+    const directKey = this.getStoryAudioKey(params.audioS3Key, params.audioUrl);
+    if (directKey && (await this.objectExists(directKey))) {
+      return directKey;
+    }
+
+    const fallback = await this.findLatestStoryAudioObjectKey(
+      params.userId,
+      params.storyId,
+    );
+
+    if (fallback) {
+      this.logger.warn(
+        `Recovered audio key by folder scan for story=${params.storyId} key=${fallback}`,
+      );
+      return fallback;
+    }
+
+    return null;
+  }
+
+  private async findLatestStoryAudioObjectKey(
+    userId: string,
+    storyId: string,
+  ): Promise<string | null> {
+    const prefix = `audio/${userId}/${storyId}/`;
+    const objects = await this.storageService.listObjectsByPrefix(prefix);
+    if (objects.length === 0) {
+      return null;
+    }
+
+    const sorted = objects
+      .slice()
+      .sort((a, b) => {
+        const aTime = a.lastModified?.getTime() ?? 0;
+        const bTime = b.lastModified?.getTime() ?? 0;
+        return bTime - aTime;
+      });
+
+    if (sorted.length > 1) {
+      this.logger.warn(
+        `Multiple audio objects found for story=${storyId}. Using newest key=${sorted[0].key}`,
+      );
+    }
+
+    return sorted[0].key;
   }
 
   private async objectExists(key: string): Promise<boolean> {
