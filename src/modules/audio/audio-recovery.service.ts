@@ -1,6 +1,8 @@
 import {
   AudioStatus,
 } from '@prisma/client';
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobeStatic from 'ffprobe-static';
 import {
   Injectable,
   Logger,
@@ -10,6 +12,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+
+if (ffprobeStatic.path) {
+  ffmpeg.setFfprobePath(ffprobeStatic.path);
+}
 
 @Injectable()
 export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
@@ -65,10 +71,11 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     try {
       const recovery = await this.recoverStories();
       await this.reconcileVoiceProfileUsage(Array.from(recovery.affectedUserIds));
+      const durationFixed = await this.fixMissingAudioDurations();
       const deleted = await this.cleanupOrphanedAudioObjects();
       const durationMs = Date.now() - startedAt;
       this.logger.log(
-        `Audio recovery cycle complete. recovered=${recovery.recovered} markedFailed=${recovery.markedFailed} usersReconciled=${recovery.affectedUserIds.size} orphanDeleted=${deleted} durationMs=${durationMs}`,
+        `Audio recovery cycle complete. recovered=${recovery.recovered} markedFailed=${recovery.markedFailed} usersReconciled=${recovery.affectedUserIds.size} durationFixed=${durationFixed} orphanDeleted=${deleted} durationMs=${durationMs}`,
       );
     } catch (error) {
       this.logger.error(
@@ -261,6 +268,77 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     );
 
     return deleted;
+  }
+
+  private async getAudioDuration(url: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(url).ffprobe((err, metadata) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const duration = metadata.format.duration;
+        if (!duration || Number.isNaN(duration)) {
+          resolve(0);
+          return;
+        }
+
+        resolve(Math.max(0, Math.round(duration)));
+      });
+    });
+  }
+
+  private async fixMissingAudioDurations(): Promise<number> {
+    const batchSize = this.getNumberEnv('AUDIO_RECOVERY_DURATION_FIX_BATCH_SIZE', 200);
+
+    const stories = await this.prismaService.story.findMany({
+      where: {
+        audioUrl: { not: null },
+        audioDuration: null,
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: batchSize,
+      select: {
+        id: true,
+        audioUrl: true,
+      },
+    });
+
+    if (stories.length === 0) {
+      return 0;
+    }
+
+    let fixed = 0;
+    for (const story of stories) {
+      if (!story.audioUrl) {
+        continue;
+      }
+
+      try {
+        const accessibleUrl = await this.storageService.resolveAccessibleUrl(
+          story.audioUrl,
+          3600,
+        );
+        const audioDuration = await this.getAudioDuration(accessibleUrl);
+
+        await this.prismaService.story.update({
+          where: { id: story.id },
+          data: { audioDuration },
+        });
+        fixed += 1;
+      } catch (error) {
+        this.logger.warn(
+          `Failed to backfill audioDuration for story=${story.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Audio duration backfill done. candidates=${stories.length} fixed=${fixed}`,
+    );
+
+    return fixed;
   }
 
   private async getReferencedAudioKeys(): Promise<Set<string>> {
