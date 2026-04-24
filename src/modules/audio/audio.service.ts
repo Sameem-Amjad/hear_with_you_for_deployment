@@ -2,20 +2,48 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobeStatic from 'ffprobe-static';
 import { AudioStatus, ResourceType, UsageAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
 
+if (ffprobeStatic.path) {
+  ffmpeg.setFfprobePath(ffprobeStatic.path);
+}
+
 @Injectable()
 export class AudioService {
+  private readonly logger = new Logger(AudioService.name);
+
   constructor(
     private readonly prismaService: PrismaService,
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
   ) {}
+
+  private async getAudioDuration(url: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(url).ffprobe((err, metadata) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const duration = metadata.format.duration;
+        if (!duration || Number.isNaN(duration)) {
+          resolve(0);
+          return;
+        }
+
+        resolve(Math.max(0, Math.round(duration)));
+      });
+    });
+  }
 
   private async getMonthlyAudioLimit(userId: string): Promise<number> {
     const user = await this.prismaService.user.findUnique({
@@ -121,6 +149,15 @@ export class AudioService {
         contentType: 'audio/mpeg',
       });
 
+      let audioDuration = 0;
+      try {
+        audioDuration = await this.getAudioDuration(uploaded.url);
+      } catch (probeError) {
+        this.logger.warn(
+          `Failed to probe audio duration for story ${story.id}: ${probeError instanceof Error ? probeError.message : String(probeError)}`,
+        );
+      }
+
       const updated = await this.prismaService.$transaction(async (tx) => {
         const s = await tx.story.update({
           where: { id: story.id },
@@ -130,6 +167,7 @@ export class AudioService {
             audioS3Key: uploaded.key,
             audioSize: uploaded.size,
             audioFormat: 'mp3',
+            audioDuration,
             audioStatus: AudioStatus.COMPLETED,
             elevenLabsCharactersUsed: totalChars,
           },
