@@ -8,6 +8,32 @@ import { PrismaService } from '../prisma/prisma.service';
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
 
+  private buildStoredJobId(
+    queueName: string,
+    jobId: string,
+    queueJobId?: string,
+  ): string {
+    return queueJobId
+      ? `${queueName}:${jobId}:${queueJobId}`
+      : `${queueName}:${jobId}`;
+  }
+
+  private getJobIdVariants(queueName: string, jobId: string): string[] {
+    return [this.buildStoredJobId(queueName, jobId), jobId];
+  }
+
+  private getJobIdPrefix(queueName: string, jobId: string): string {
+    return `${queueName}:${jobId}:`;
+  }
+
+  private extractRawJobId(jobId: string): string {
+    const parts = jobId.split(':');
+    if (parts.length >= 3) {
+      return parts[parts.length - 2];
+    }
+    return parts.length > 1 ? parts[parts.length - 1] : jobId;
+  }
+
   constructor(
     private readonly prismaService: PrismaService,
     @InjectQueue('story-generation') private readonly storyQueue: Queue,
@@ -54,7 +80,17 @@ export class QueueService {
       },
     });
 
-    const job = await queue.add(params.name, params.payload, {
+    const payloadWithQueueJobId =
+      typeof params.payload === 'object' &&
+      params.payload !== null &&
+      !Array.isArray(params.payload)
+        ? ({
+            ...(params.payload as Record<string, unknown>),
+            queueJobId: created.id,
+          } as Prisma.InputJsonValue)
+        : params.payload;
+
+    const job = await queue.add(params.name, payloadWithQueueJobId, {
       priority: params.priority ?? 0,
       attempts: params.attempts ?? 3,
       backoff: params.backoffMs
@@ -66,7 +102,10 @@ export class QueueService {
 
     await this.prismaService.queueJob.update({
       where: { id: created.id },
-      data: { jobId: String(job.id) },
+      data: {
+        payload: payloadWithQueueJobId,
+        jobId: this.buildStoredJobId(params.queue, String(job.id), created.id),
+      },
     });
 
     this.logger.log(
@@ -76,19 +115,53 @@ export class QueueService {
     return { job, queueJobId: created.id };
   }
 
-  async markProcessing(jobId: string): Promise<void> {
+  async markProcessing(
+    queueName: string,
+    jobId: string,
+    queueJobId?: string,
+  ): Promise<void> {
     await this.prismaService.queueJob.updateMany({
-      where: { jobId },
+      where: {
+        OR: [
+          ...(queueJobId ? [{ id: queueJobId }] : []),
+          {
+            jobId: {
+              in: this.getJobIdVariants(queueName, jobId),
+            },
+          },
+          {
+            jobId: {
+              startsWith: this.getJobIdPrefix(queueName, jobId),
+            },
+          },
+        ],
+      },
       data: { status: JobStatus.PROCESSING, startedAt: new Date() },
     });
   }
 
   async markCompleted(
+    queueName: string,
     jobId: string,
     result?: Prisma.InputJsonValue,
+    queueJobId?: string,
   ): Promise<void> {
     await this.prismaService.queueJob.updateMany({
-      where: { jobId },
+      where: {
+        OR: [
+          ...(queueJobId ? [{ id: queueJobId }] : []),
+          {
+            jobId: {
+              in: this.getJobIdVariants(queueName, jobId),
+            },
+          },
+          {
+            jobId: {
+              startsWith: this.getJobIdPrefix(queueName, jobId),
+            },
+          },
+        ],
+      },
       data: {
         status: JobStatus.COMPLETED,
         completedAt: new Date(),
@@ -97,21 +170,45 @@ export class QueueService {
     });
   }
 
-  async markFailed(jobId: string, error: string): Promise<void> {
+  async markFailed(
+    queueName: string,
+    jobId: string,
+    error: string,
+    queueJobId?: string,
+  ): Promise<void> {
     await this.prismaService.queueJob.updateMany({
-      where: { jobId },
+      where: {
+        OR: [
+          ...(queueJobId ? [{ id: queueJobId }] : []),
+          {
+            jobId: {
+              in: this.getJobIdVariants(queueName, jobId),
+            },
+          },
+          {
+            jobId: {
+              startsWith: this.getJobIdPrefix(queueName, jobId),
+            },
+          },
+        ],
+      },
       data: { status: JobStatus.FAILED, failedAt: new Date(), error },
     });
   }
 
   async cancelJob(queueName: string, jobId: string): Promise<void> {
     const queue = this.getQueue(queueName);
-    const job = await queue.getJob(jobId);
+    const rawJobId = this.extractRawJobId(jobId);
+    const job = await queue.getJob(rawJobId);
     if (job) {
       await job.remove();
     }
     await this.prismaService.queueJob.updateMany({
-      where: { jobId },
+      where: {
+        jobId: {
+          in: this.getJobIdVariants(queueName, rawJobId),
+        },
+      },
       data: { status: JobStatus.CANCELLED },
     });
   }

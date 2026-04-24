@@ -17,14 +17,20 @@ export class AudioProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<unknown> {
-    await this.queueService.markProcessing(String(job.id));
+    await this.queueService.markProcessing(
+      QUEUE_NAMES.AUDIO_GENERATION,
+      String(job.id),
+    );
     try {
       this.logger.log(`Processing audio job ${job.name} id=${job.id}`);
       const data = job.data as {
         userId: string;
         storyId: string;
         voiceProfileId?: string;
+        queueJobId?: string;
       };
+
+      const queueJobId = data.queueJobId;
 
       if (job.name === QUEUE_JOB_NAMES.AUDIO_GENERATE) {
         await this.audioService.generateForStory({
@@ -33,16 +39,31 @@ export class AudioProcessor extends WorkerHost {
           voiceProfileId: data.voiceProfileId,
         });
         const result = { storyId: data.storyId };
-        await this.queueService.markCompleted(String(job.id), result);
+        await this.queueService.markCompleted(
+          QUEUE_NAMES.AUDIO_GENERATION,
+          String(job.id),
+          result,
+          queueJobId,
+        );
         return result;
       }
 
       const result = { ok: true, name: job.name };
-      await this.queueService.markCompleted(String(job.id), result);
+      await this.queueService.markCompleted(
+        QUEUE_NAMES.AUDIO_GENERATION,
+        String(job.id),
+        result,
+        queueJobId,
+      );
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.queueService.markFailed(String(job.id), message);
+      await this.queueService.markFailed(
+        QUEUE_NAMES.AUDIO_GENERATION,
+        String(job.id),
+        message,
+        (job.data as { queueJobId?: string }).queueJobId,
+      );
       throw err;
     }
   }

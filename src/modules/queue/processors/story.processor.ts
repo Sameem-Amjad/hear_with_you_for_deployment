@@ -20,7 +20,10 @@ export class StoryProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<unknown> {
-    await this.queueService.markProcessing(String(job.id));
+    await this.queueService.markProcessing(
+      QUEUE_NAMES.STORY_GENERATION,
+      String(job.id),
+    );
     try {
       this.logger.log(`Processing story job ${job.name} id=${job.id}`);
       const data = job.data as {
@@ -28,7 +31,10 @@ export class StoryProcessor extends WorkerHost {
         storyDto: GenerateStoryDto;
         generateAudio?: boolean;
         voiceProfileId?: string;
+        queueJobId?: string;
       };
+
+      const queueJobId = data.queueJobId;
 
       if (job.name === QUEUE_JOB_NAMES.STORY_GENERATE_TEXT) {
         const res = await this.storyService.generate(
@@ -36,7 +42,12 @@ export class StoryProcessor extends WorkerHost {
           data.storyDto,
         );
         const result = { storyId: res.story.id };
-        await this.queueService.markCompleted(String(job.id), result);
+        await this.queueService.markCompleted(
+          QUEUE_NAMES.STORY_GENERATION,
+          String(job.id),
+          result,
+          queueJobId,
+        );
         return result;
       }
 
@@ -56,16 +67,31 @@ export class StoryProcessor extends WorkerHost {
           storyId: res.story.id,
           audioRequested: data.generateAudio !== false,
         };
-        await this.queueService.markCompleted(String(job.id), result);
+        await this.queueService.markCompleted(
+          QUEUE_NAMES.STORY_GENERATION,
+          String(job.id),
+          result,
+          queueJobId,
+        );
         return result;
       }
 
       const result = { ok: true, name: job.name };
-      await this.queueService.markCompleted(String(job.id), result);
+      await this.queueService.markCompleted(
+        QUEUE_NAMES.STORY_GENERATION,
+        String(job.id),
+        result,
+        queueJobId,
+      );
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.queueService.markFailed(String(job.id), message);
+      await this.queueService.markFailed(
+        QUEUE_NAMES.STORY_GENERATION,
+        String(job.id),
+        message,
+        (job.data as { queueJobId?: string }).queueJobId,
+      );
       throw err;
     }
   }
