@@ -1,10 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import {
-  PaymentStatus,
-  Prisma,
-  StoryTheme,
-  SubscriptionStatus,
-} from '@prisma/client';
+import { PaymentStatus, Prisma, StoryTheme, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminSettingsService } from './admin-settings.service';
 import { changePct, parseRangeDays } from '../utils/admin-metrics.util';
@@ -248,62 +243,209 @@ export class AdminManagementService {
     return { message: 'Story feature status updated', story };
   }
 
-  async listTemplates(page = 1, limit = 20) {
+  async listTemplates(
+    page = 1,
+    limit = 20,
+    filters?: {
+      search?: string;
+      isActive?: boolean;
+      isPublished?: boolean;
+    },
+  ) {
     const skip = (page - 1) * limit;
+
+    const where: Prisma.StoryTemplateWhereInput = {
+      ...(typeof filters?.isActive === 'boolean'
+        ? { isActive: filters.isActive }
+        : {}),
+      ...(typeof filters?.isPublished === 'boolean'
+        ? { isPublished: filters.isPublished }
+        : {}),
+      ...(filters?.search
+        ? {
+            OR: [
+              { name: { contains: filters.search, mode: 'insensitive' } },
+              { templatePrompt: { contains: filters.search, mode: 'insensitive' } },
+              { templateSvg: { contains: filters.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
     const [items, total] = await this.prismaService.$transaction([
       this.prismaService.storyTemplate.findMany({
-        orderBy: { updatedAt: 'desc' },
+        where,
+        orderBy: [{ isPublished: 'desc' }, { updatedAt: 'desc' }],
         skip,
         take: limit,
       }),
-      this.prismaService.storyTemplate.count(),
+      this.prismaService.storyTemplate.count({ where }),
     ]);
-    return { items, total, page, limit };
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async getTemplate(id: string) {
+    const template = await this.prismaService.storyTemplate.findUnique({
+      where: { id },
+    });
+
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+
+    return { template };
   }
 
   async createTemplate(dto: {
     name: string;
-    description?: string;
-    theme: StoryTheme;
-    ageGroup: any;
-    promptTemplate: string;
-    placeholders?: string[];
-    tags?: string[];
-    thumbnailUrl?: string;
+    templatePrompt: string;
+    templateSvg?: string;
     isFeatured?: boolean;
+    isPublished?: boolean;
     isActive?: boolean;
-  }) {
+  }, templateSvgFile?: Express.Multer.File) {
+    if (!dto.name?.trim()) {
+      throw new BadRequestException('Template name is required');
+    }
+
+    if (!dto.templatePrompt?.trim()) {
+      throw new BadRequestException('Template content is required');
+    }
+
+    const templateSvg = templateSvgFile
+      ? await this.storageService.uploadSvgFile(templateSvgFile, 'templates')
+      : dto.templateSvg;
+
     const template = await this.prismaService.storyTemplate.create({
       data: {
-        name: dto.name,
-        description: dto.description,
-        theme: dto.theme,
-        ageGroup: dto.ageGroup,
-        promptTemplate: dto.promptTemplate,
-        placeholders: dto.placeholders ?? [],
-        tags: dto.tags ?? [],
-        thumbnailUrl: dto.thumbnailUrl,
-        isFeatured: dto.isFeatured ?? false,
+        name: dto.name ?? '',
+        templatePrompt: dto.templatePrompt.trim(),
+        templateSvg,
+        isFeatured: dto.isFeatured ?? true,
+        isPublished: dto.isPublished ?? true,
         isActive: dto.isActive ?? true,
       },
     });
+
     return { message: 'Template created', template };
   }
 
-  async updateTemplate(id: string, dto: Prisma.StoryTemplateUpdateInput) {
-    const template = await this.prismaService.storyTemplate.update({
+  async updateTemplate(
+    id: string,
+    dto: {
+      name?: string;
+      templatePrompt?: string;
+      templateSvg?: string;
+      isFeatured?: boolean;
+      isPublished?: boolean;
+      isActive?: boolean;
+    },
+    templateSvgFile?: Express.Multer.File,
+  ) {
+    const existing = await this.prismaService.storyTemplate.findUnique({
       where: { id },
-      data: dto,
+      select: { id: true },
     });
-    return { message: 'Template updated', template };
+
+    if (!existing) {
+      throw new NotFoundException('Template not found');
+    }
+
+    const templateSvg = templateSvgFile
+      ? await this.storageService.uploadSvgFile(templateSvgFile, 'templates')
+      : dto.templateSvg;
+
+    if (dto.name !== undefined && !dto.name.trim()) {
+      throw new BadRequestException('Template name cannot be empty');
+    }
+
+    if (dto.templatePrompt !== undefined && !dto.templatePrompt.trim()) {
+      throw new BadRequestException('Template content cannot be empty');
+    }
+
+    const data: Prisma.StoryTemplateUpdateInput = {
+      ...(dto.name !== undefined ? { name: dto.name } : {}),
+      ...(dto.templatePrompt !== undefined
+        ? { templatePrompt: dto.templatePrompt.trim() }
+        : {}),
+      ...(templateSvg !== undefined ? { templateSvg } : {}),
+      ...(typeof dto.isFeatured === 'boolean' ? { isFeatured: dto.isFeatured } : {}),
+      ...(typeof dto.isPublished === 'boolean' ? { isPublished: dto.isPublished } : {}),
+      ...(typeof dto.isActive === 'boolean' ? { isActive: dto.isActive } : {}),
+    };
+
+    if (
+      'templatePrompt' in data &&
+      typeof data.templatePrompt === 'string' &&
+      !data.templatePrompt.length
+    ) {
+      throw new BadRequestException('Template content cannot be empty');
+    }
+
+    const updated = await this.prismaService.storyTemplate.update({
+      where: { id },
+      data,
+    });
+
+    return { message: 'Template updated', template: updated };
   }
 
   async archiveTemplate(id: string) {
     await this.prismaService.storyTemplate.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, isPublished: false },
     });
     return { message: 'Template archived' };
+  }
+
+  async publishTemplate(id: string) {
+    const existing = await this.prismaService.storyTemplate.findUnique({
+      where: { id },
+      select: { id: true, isActive: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Template not found');
+    }
+
+    if (!existing.isActive) {
+      throw new BadRequestException('Cannot publish inactive template');
+    }
+
+    const template = await this.prismaService.storyTemplate.update({
+      where: { id },
+      data: {
+        isPublished: true,
+      },
+    });
+
+    return { message: 'Template published', template };
+  }
+
+  async unpublishTemplate(id: string) {
+    const existing = await this.prismaService.storyTemplate.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Template not found');
+    }
+
+    const template = await this.prismaService.storyTemplate.update({
+      where: { id },
+      data: {
+        isPublished: false,
+      },
+    });
+
+    return { message: 'Template unpublished', template };
   }
 
   async subscriptionsOverview(range: string) {

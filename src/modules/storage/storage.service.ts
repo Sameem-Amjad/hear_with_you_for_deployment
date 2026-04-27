@@ -68,6 +68,17 @@ export class StorageService {
     }
   }
 
+  validateSvgFile(file: Express.Multer.File): void {
+    const allowedMimeTypes = new Set(['image/svg+xml']);
+    if (!allowedMimeTypes.has(file.mimetype)) {
+      throw new BadRequestException('Only SVG files are allowed');
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      throw new BadRequestException('SVG file size must not exceed 2MB');
+    }
+  }
+
   async uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
     this.validateImageFile(file);
 
@@ -123,6 +134,34 @@ export class StorageService {
     } catch (error) {
       this.logger.error(
         'Failed to upload audio file',
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException('File upload failed');
+    }
+  }
+
+  async uploadSvgFile(file: Express.Multer.File, folder: string): Promise<string> {
+    this.validateSvgFile(file);
+
+    const filename = `${uuidv4()}-${Date.now()}.svg`;
+    const key = `hear_with_you/${folder.replace(/\/$/, '')}/${filename}`;
+
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+          ACL: 'public-read',
+        }),
+      );
+      const url = `https://${this.bucket}.${this.region}.digitaloceanspaces.com/${key}`;
+      this.logger.log(`Uploaded SVG to ${url}`);
+      return url;
+    } catch (error) {
+      this.logger.error(
+        'Failed to upload SVG file',
         error instanceof Error ? error.stack : undefined,
       );
       throw new InternalServerErrorException('File upload failed');

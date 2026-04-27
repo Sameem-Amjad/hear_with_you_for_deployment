@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FeedbackType, Prisma, StoryTheme } from '@prisma/client';
+import { FeedbackType, StoryTheme } from '@prisma/client';
 import { AdminAuthService } from './services/admin-auth.service';
 import { AdminDashboardService } from './services/admin-dashboard.service';
 import { AdminFeedbackService } from './services/admin-feedback.service';
@@ -83,31 +83,58 @@ export class AdminService {
     return this.managementService.updateStoryFeature(id, isFeatured);
   }
 
-  listTemplates(page = 1, limit = 20) {
-    return this.managementService.listTemplates(page, limit);
+  listTemplates(
+    page = 1,
+    limit = 20,
+    filters?: {
+      search?: string;
+      isActive?: boolean;
+      isPublished?: boolean;
+    },
+  ) {
+    return this.managementService.listTemplates(page, limit, filters);
+  }
+
+  getTemplate(id: string) {
+    return this.managementService.getTemplate(id);
   }
 
   createTemplate(dto: {
     name: string;
-    description?: string;
-    theme: StoryTheme;
-    ageGroup: any;
-    promptTemplate: string;
-    placeholders?: string[];
-    tags?: string[];
-    thumbnailUrl?: string;
+    templatePrompt: string;
+    templateSvg?: string;
     isFeatured?: boolean;
+    isPublished?: boolean;
     isActive?: boolean;
-  }) {
-    return this.managementService.createTemplate(dto);
+  }, templateSvgFile?: Express.Multer.File) {
+    return this.managementService.createTemplate(dto, templateSvgFile);
   }
 
-  updateTemplate(id: string, dto: Prisma.StoryTemplateUpdateInput) {
-    return this.managementService.updateTemplate(id, dto);
+  updateTemplate(
+    id: string,
+    dto: {
+      name?: string;
+      templatePrompt?: string;
+      templateSvg?: string;
+      isFeatured?: boolean;
+      isPublished?: boolean;
+      isActive?: boolean;
+    },
+    templateSvgFile?: Express.Multer.File,
+  ) {
+    return this.managementService.updateTemplate(id, dto, templateSvgFile);
   }
 
   archiveTemplate(id: string) {
     return this.managementService.archiveTemplate(id);
+  }
+
+  publishTemplate(id: string) {
+    return this.managementService.publishTemplate(id);
+  }
+
+  unpublishTemplate(id: string) {
+    return this.managementService.unpublishTemplate(id);
   }
 
   subscriptionsOverview(range: string) {

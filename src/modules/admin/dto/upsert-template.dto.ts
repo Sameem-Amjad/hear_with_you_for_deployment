@@ -1,60 +1,40 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AgeGroup, StoryTheme } from '@prisma/client';
-import {
-  IsArray,
-  IsBoolean,
-  IsEnum,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpsertTemplateDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Template name', required: false, default: '' })
   @IsString()
-  @MaxLength(120)
   name: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ description: 'Template prompt/content' })
+  @IsString()
+  templatePrompt: string;
+
+  @ApiProperty({ required: false, description: 'Raw SVG markup' })
   @IsOptional()
   @IsString()
-  description?: string;
+  templateSvg?: string;
 
-  @ApiProperty({ enum: StoryTheme })
-  @IsEnum(StoryTheme)
-  theme: StoryTheme;
-
-  @ApiProperty({ enum: AgeGroup })
-  @IsEnum(AgeGroup)
-  ageGroup: AgeGroup;
-
-  @ApiProperty()
-  @IsString()
-  promptTemplate: string;
-
-  @ApiPropertyOptional({ type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  placeholders?: string[];
-
-  @ApiPropertyOptional({ type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  tags?: string[];
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    type: 'string',
+    format: 'binary',
+    description: 'SVG file upload that will be stored and saved as templateSvg',
+  })
   @IsOptional()
   @IsString()
-  thumbnailUrl?: string;
+  templateSvgFile?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ required: false, default: true })
   @IsOptional()
   @IsBoolean()
   isFeatured?: boolean;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  isPublished?: boolean;
+
+  @ApiProperty({ required: false, default: true })
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;

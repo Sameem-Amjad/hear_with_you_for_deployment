@@ -13,15 +13,30 @@ export class TemplatesService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.StoryTemplateWhereInput = {
-      ...(typeof query.isActive === 'boolean'
-        ? { isActive: query.isActive }
-        : { isActive: true }),
+      isActive: true,
+      isPublished: true,
       ...(query.search
         ? {
-            name: {
-              contains: query.search,
-              mode: 'insensitive',
-            },
+            OR: [
+              {
+                name: {
+                  contains: query.search,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                templatePrompt: {
+                  contains: query.search,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                templateSvg: {
+                  contains: query.search,
+                  mode: 'insensitive',
+                },
+              },
+            ],
           }
         : {}),
     };
@@ -49,7 +64,7 @@ export class TemplatesService {
       where: { id },
     });
 
-    if (!template || !template.isActive) {
+    if (!template || !template.isActive || !template.isPublished) {
       throw new NotFoundException('Template not found');
     }
 

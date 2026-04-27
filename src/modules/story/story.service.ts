@@ -43,7 +43,6 @@ const storyReadSelect = {
   audioDuration: true,
   audioFormat: true,
   elevenLabsRequestId: true,
-  publishedAt: true,
   lastPlayedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -144,12 +143,11 @@ export class StoryService {
           where: {
             id: dto.templateId,
             isActive: true,
+            isPublished: true,
           },
           select: {
             id: true,
-            theme: true,
-            ageGroup: true,
-            promptTemplate: true,
+            templatePrompt: true,
           },
         })
       : null;
@@ -158,9 +156,8 @@ export class StoryService {
       throw new BadRequestException('Template not found or inactive');
     }
 
-    const resolvedTheme = selectedTemplate?.theme ?? dto.theme ?? StoryTheme.CUSTOM;
-    const resolvedAgeGroup =
-      selectedTemplate?.ageGroup ?? dto.ageGroup ?? ('GENERAL' as any);
+    const resolvedTheme = dto.theme ?? StoryTheme.CUSTOM;
+    const resolvedAgeGroup = dto.ageGroup ?? ('GENERAL' as any);
 
     if (!selectedTemplate && !dto.customPrompt && !dto.theme) {
       throw new BadRequestException(
@@ -205,7 +202,7 @@ export class StoryService {
       ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
       child,
-      templatePrompt: selectedTemplate?.promptTemplate,
+      templatePrompt: selectedTemplate?.templatePrompt,
       customPrompt: dto.customPrompt,
     });
 

@@ -8,9 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
 import { AdminGuard } from '../../common/guards/admin.guard';
 import { AdminService } from './admin.service';
@@ -24,13 +28,20 @@ import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 import { FeatureStoryDto } from './dto/feature-story.dto';
 import { RangeQueryDto } from './dto/range-query.dto';
 import { RespondFeedbackDto } from './dto/respond-feedback.dto';
+import { AdminTemplatesQueryDto } from './dto/admin-templates-query.dto';
 import { UpdateProviderKeyDto } from './dto/update-provider-key.dto';
 import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
+import { UpdateTemplateDto } from './dto/update-template.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UpsertTemplateDto } from './dto/upsert-template.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { AdminLoginDto } from './dto/admin-login.dto';
 import { Public } from '../../common/decorators/public.decorator';
+
+const templateSvgUploadOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+};
 
 @ApiTags('Admin')
 @ApiBearerAuth('firebaseauth')
@@ -144,11 +155,11 @@ export class AdminController {
   }
 
   @Get('templates')
-  @ApiOperation({ summary: 'Admin template list' })
-  async templates(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'Admin template list with search and filters' })
+  async templates(@Query() query: AdminTemplatesQueryDto) {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 20);
-    const res = await this.adminService.listTemplates(page, limit);
+    const res = await this.adminService.listTemplates(page, limit, query);
     return buildPaginatedResponse({
       items: res.items,
       total: res.total,
@@ -157,16 +168,47 @@ export class AdminController {
     });
   }
 
+  @Get('templates/:id')
+  @ApiOperation({ summary: 'Get template details' })
+  getTemplate(@Param('id') id: string) {
+    return this.adminService.getTemplate(id);
+  }
+
   @Post('templates')
   @ApiOperation({ summary: 'Create story template' })
-  createTemplate(@Body() dto: UpsertTemplateDto) {
-    return this.adminService.createTemplate(dto);
+  @UseInterceptors(FileInterceptor('templateSvgFile', templateSvgUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UpsertTemplateDto })
+  createTemplate(
+    @Body() dto: UpsertTemplateDto,
+    @UploadedFile() templateSvgFile?: Express.Multer.File,
+  ) {
+    return this.adminService.createTemplate(dto, templateSvgFile);
   }
 
   @Patch('templates/:id')
   @ApiOperation({ summary: 'Update story template' })
-  updateTemplate(@Param('id') id: string, @Body() dto: Partial<UpsertTemplateDto>) {
-    return this.adminService.updateTemplate(id, dto);
+  @UseInterceptors(FileInterceptor('templateSvgFile', templateSvgUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: UpdateTemplateDto })
+  updateTemplate(
+    @Param('id') id: string,
+    @Body() dto: UpdateTemplateDto,
+    @UploadedFile() templateSvgFile?: Express.Multer.File,
+  ) {
+    return this.adminService.updateTemplate(id, dto, templateSvgFile);
+  }
+
+  @Patch('templates/:id/publish')
+  @ApiOperation({ summary: 'Publish story template' })
+  publishTemplate(@Param('id') id: string) {
+    return this.adminService.publishTemplate(id);
+  }
+
+  @Patch('templates/:id/unpublish')
+  @ApiOperation({ summary: 'Unpublish story template' })
+  unpublishTemplate(@Param('id') id: string) {
+    return this.adminService.unpublishTemplate(id);
   }
 
   @Delete('templates/:id')

@@ -563,30 +563,19 @@ model Notification {
 // ============================================
 
 model StoryTemplate {
-  id          String     @id @default(uuid())
-  name        String
-  description String?    @db.Text
-  theme       StoryTheme
-  ageGroup    AgeGroup
+  id             String  @id @default(uuid())
+  name           String  @default("")
+  templateSvg    String? @db.Text @map("template_svg")
+  templatePrompt String  @db.Text @map("template_prompt")
 
-  // Template content
-  promptTemplate String   @db.Text
-  placeholders   String[] // Variables like {childName}, {interest}
-
-  // Metadata
-  isActive   Boolean @default(true)
-  isFeatured Boolean @default(false)
-  usageCount Int     @default(0)
-
-  thumbnailUrl String?
-  tags         String[]
+  isFeatured Boolean @default(true)
+  isPublished Boolean @default(true) @map("is_published")
+  isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([theme])
-  @@index([ageGroup])
-  @@index([isActive, isFeatured])
+  @@index([isActive, isPublished, isFeatured])
   @@map("story_templates")
 }
 

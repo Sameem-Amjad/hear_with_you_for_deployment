@@ -1,6 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 
 export class ListTemplatesQueryDto extends PaginationQueryDto {
@@ -9,10 +8,4 @@ export class ListTemplatesQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(100)
   search?: string;
-
-  @ApiPropertyOptional({ description: 'Filter active templates only' })
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  isActive?: boolean;
 }
