@@ -46,7 +46,6 @@ export const storyReadSelect = {
   audioUrl: true,
   audioDuration: true,
   audioFormat: true,
-  elevenLabsRequestId: true,
   lastPlayedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -79,6 +78,7 @@ export class StoryService {
       voiceProfileId?: string | null;
       voiceProfile?: { typeCode: number } | null;
       isFeatured?: boolean;
+      createdAt: Date;
     },
   >(
     story: T,
@@ -125,6 +125,9 @@ export class StoryService {
       averageRating: rest.averageRating ?? null,
       isVoiceStoryCreated:
         rest.audioStatus === 'COMPLETED' && Boolean(rest.audioUrl),
+        elevenLabsRequestId:null,
+        isFeatured: Boolean(isFeatured),
+        publishedAt: story.createdAt,
     };
   }
 
@@ -205,7 +208,6 @@ export class StoryService {
       theme: resolvedTheme,
       ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
-      child: null,
       templatePrompt: selectedTemplate?.templatePrompt,
       customPrompt: dto.customPrompt,
     });
@@ -366,10 +368,10 @@ export class StoryService {
     const updatedStory = await this.prismaService.story.update({
       where: { id: storyId },
       data: { isFeatured: true },
-      select: { id: true, isFeatured: true, updatedAt: true },
+      select: { id: true, isFeatured: true, createdAt: true },
     });
 
-    return { message: 'Added to favorites', story: updatedStory };
+    return { message: 'Added to favorites', favorite: {...updatedStory,storyId:updatedStory.id} };
   }
 
   async removeFavorite(userId: string, storyId: string) {

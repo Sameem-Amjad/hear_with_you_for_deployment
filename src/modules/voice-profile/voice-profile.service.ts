@@ -500,7 +500,6 @@ export class VoiceProfileService {
           audioUrl: true,
           audioDuration: true,
           audioFormat: true,
-          elevenLabsRequestId: true,
           lastPlayedAt: true,
           createdAt: true,
           updatedAt: true,
@@ -512,6 +511,7 @@ export class VoiceProfileService {
     const mappedItems = items.map(({ voiceProfile, ...story }) => ({
       ...story,
       type: voiceProfile?.typeCode ?? null,
+      elevenLabsRequestId: null, // Not exposing this for now since it's not currently used on the frontend and would require additional DB query to fetch for each story if we want to support it for stories that don't have it in the main table.
     }));
 
     return {

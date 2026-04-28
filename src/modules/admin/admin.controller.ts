@@ -21,13 +21,11 @@ import { AdminService } from './admin.service';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 import { CurrentUser } from '../../common/decorators/currentuser.decorator';
-import { AdminFeedbackQueryDto } from './dto/admin-feedback-query.dto';
 import { AdminStoriesQueryDto } from './dto/admin-stories-query.dto';
 import { AdminTransactionsQueryDto } from './dto/admin-transactions-query.dto';
 import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
 import { FeatureStoryDto } from './dto/feature-story.dto';
 import { RangeQueryDto } from './dto/range-query.dto';
-import { RespondFeedbackDto } from './dto/respond-feedback.dto';
 import { AdminTemplatesQueryDto } from './dto/admin-templates-query.dto';
 import { UpdateProviderKeyDto } from './dto/update-provider-key.dto';
 import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
@@ -269,33 +267,5 @@ export class AdminController {
     @Body() dto: UpdateSubscriptionPlanDto,
   ) {
     return this.adminService.updateSubscriptionPlanSetting(code, dto);
-  }
-
-  @Get('feedback')
-  @ApiOperation({ summary: 'Feedback moderation list' })
-  async feedback(@Query() query: AdminFeedbackQueryDto) {
-    const page = Number(query.page ?? 1);
-    const limit = Number(query.limit ?? 20);
-    const res = await this.adminService.listFeedback(page, limit, query);
-    return buildPaginatedResponse({
-      items: res.items,
-      total: res.total,
-      page,
-      limit,
-    });
-  }
-
-  @Patch('feedback/:id/respond')
-  @ApiOperation({ summary: 'Respond to feedback item' })
-  respondFeedback(
-    @Param('id') id: string,
-    @Body() dto: RespondFeedbackDto,
-    @CurrentUser() user: { email?: string; id: string },
-  ) {
-    return this.adminService.respondFeedback(
-      id,
-      dto,
-      user.email ?? user.id,
-    );
   }
 }

@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { FeedbackType, StoryTheme } from '@prisma/client';
+import { StoryTheme } from '@prisma/client';
 import { AdminAuthService } from './services/admin-auth.service';
 import { AdminDashboardService } from './services/admin-dashboard.service';
-import { AdminFeedbackService } from './services/admin-feedback.service';
 import { AdminManagementService } from './services/admin-management.service';
 import { AdminSettingsService } from './services/admin-settings.service';
 
@@ -13,7 +12,6 @@ export class AdminService {
     private readonly dashboardService: AdminDashboardService,
     private readonly managementService: AdminManagementService,
     private readonly settingsService: AdminSettingsService,
-    private readonly feedbackService: AdminFeedbackService,
   ) {}
 
   login(dto: { email: string; password: string }) {
@@ -182,19 +180,5 @@ export class AdminService {
     return this.settingsService.updateSubscriptionPlanSetting(code, dto);
   }
 
-  listFeedback(
-    page = 1,
-    limit = 20,
-    filters?: { search?: string; type?: FeedbackType; status?: string },
-  ) {
-    return this.feedbackService.listFeedback(page, limit, filters);
-  }
-
-  respondFeedback(
-    id: string,
-    dto: { response: string; status: string },
-    respondedBy: string,
-  ) {
-    return this.feedbackService.respondFeedback(id, dto, respondedBy);
-  }
 }
+
