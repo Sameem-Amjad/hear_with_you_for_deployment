@@ -295,7 +295,10 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
     const stories = await this.prismaService.story.findMany({
       where: {
         audioUrl: { not: null },
-        audioDuration: null,
+        OR: [
+          { audioDuration: null },
+          { audioDuration: { lte: 1 } }, // Retry failed extractions (0 or 1 sentinel)
+        ],
       },
       orderBy: { updatedAt: 'asc' },
       take: batchSize,
@@ -321,10 +324,11 @@ export class AudioRecoveryService implements OnModuleInit, OnModuleDestroy {
           3600,
         );
         const audioDuration = await this.getAudioDuration(accessibleUrl);
+        const finalDuration = audioDuration > 0 ? audioDuration : 1;
 
         await this.prismaService.story.update({
           where: { id: story.id },
-          data: { audioDuration },
+          data: { audioDuration: finalDuration },
         });
         fixed += 1;
       } catch (error) {
