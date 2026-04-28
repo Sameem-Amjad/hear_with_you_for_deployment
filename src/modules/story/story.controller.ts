@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   UseGuards,
+  Body,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../common/guards/firebaseauth.guard';
@@ -17,6 +18,7 @@ import { SWAGGER_META } from '../../common/constants/swagger.meta';
 import { API_PATHS } from '../../common/constants/api.paths';
 import { StorageService } from '../storage/storage.service';
 import { ListStoriesQueryDto } from './dto/list-stories-query.dto';
+import { RecordStoryPlayDto } from './dto/record-story-play.dto';
 
 @ApiTags(SWAGGER_META.TAGS.STORY)
 @ApiBearerAuth('firebaseauth')
@@ -156,5 +158,15 @@ export class StoryController {
     @Param('id') id: string,
   ) {
     return this.storyService.removeFavorite(user.id, id);
+  }
+
+  @Post(':id/play')
+  @ApiOperation({ summary: 'Record story play event' })
+  async recordPlay(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Body() dto: RecordStoryPlayDto,
+  ) {
+    return this.storyService.recordPlay(user.id, id, dto);
   }
 }

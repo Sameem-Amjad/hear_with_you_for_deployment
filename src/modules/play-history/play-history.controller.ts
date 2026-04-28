@@ -57,12 +57,11 @@ export class PlayHistoryController {
     );
 
     const items = await Promise.all(
-      res.items.map(async (item) => ({
+      res.items.map(async (item:any) => ({
         ...item,
-        story: {
-          ...item.story,
-          audioUrl: await this.wrapUrl(item.story?.audioUrl),
-        },
+        
+          audioUrl: await this.wrapUrl(item.audioUrl),
+        
       })),
     );
 

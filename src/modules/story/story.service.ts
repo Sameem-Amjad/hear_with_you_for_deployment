@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StoryPromptService } from './story-prompt.service';
 import { OpenAiService } from './openai.service';
 import { GenerateStoryDto } from './dto/generate-story.dto';
+import { RecordStoryPlayDto } from './dto/record-story-play.dto';
 
 type GeneratedStory = {
   title: string;
@@ -25,7 +26,7 @@ type GeneratedStory = {
   characterNames?: string[];
 };
 
-const storyReadSelect = {
+export const storyReadSelect = {
   id: true,
   userId: true,
   voiceProfileId: true,
@@ -37,6 +38,9 @@ const storyReadSelect = {
   title: true,
   content: true,
   isFeatured: true,
+  playCount: true,
+  completionCount: true,
+  averageRating: true,
   promptUsed: true,
   audioStatus: true,
   audioUrl: true,
@@ -69,6 +73,9 @@ export class StoryService {
       audioStatus?: string;
       audioUrl?: string | null;
       audioDuration?: number | null;
+      playCount?: number;
+      completionCount?: number;
+      averageRating?: number | null;
       voiceProfileId?: string | null;
       voiceProfile?: { typeCode: number } | null;
       isFeatured?: boolean;
@@ -113,6 +120,9 @@ export class StoryService {
       audioDuration,
       isFavorite: Boolean(isFeatured),
       type,
+      playCount: rest.playCount ?? 0,
+      completionCount: rest.completionCount ?? 0,
+      averageRating: rest.averageRating ?? null,
       isVoiceStoryCreated:
         rest.audioStatus === 'COMPLETED' && Boolean(rest.audioUrl),
     };
@@ -387,6 +397,56 @@ export class StoryService {
     });
 
     return { message: 'Removed from favorites', story: updatedStory };
+  }
+
+  async recordPlay(userId: string, storyId: string, dto: RecordStoryPlayDto) {
+    const story = await this.prismaService.story.findFirst({
+      where: { id: storyId, userId },
+      select: { id: true },
+    });
+
+    if (!story) {
+      throw new NotFoundException('Story not found');
+    }
+
+    const now = new Date();
+
+    const updatedStory = await this.prismaService.$transaction(async (tx) => {
+      await tx.playHistory.create({
+        data: {
+          storyId,
+          userId,
+          childProfileId: dto.childProfileId,
+          duration: dto.playbackPositionSeconds,
+          completionRate: dto.completionRate,
+          wasCompleted: dto.wasCompleted ?? false,
+          deviceType: dto.deviceType,
+          platform: dto.platform,
+          playedAt: now,
+        },
+      });
+
+      return tx.story.update({
+        where: { id: storyId },
+        data: {
+          playCount: { increment: 1 },
+          ...(dto.wasCompleted ? { completionCount: { increment: 1 } } : {}),
+          lastPlayedAt: now,
+        },
+        select: {
+          id: true,
+          title: true,
+          playCount: true,
+          completionCount: true,
+          lastPlayedAt: true,
+        },
+      });
+    });
+
+    return {
+      message: 'Story play recorded',
+      story: updatedStory,
+    };
   }
 
   async listFavorites(userId: string, page = 1, limit = 20) {
