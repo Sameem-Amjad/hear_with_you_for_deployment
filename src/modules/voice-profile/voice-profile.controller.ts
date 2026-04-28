@@ -33,6 +33,7 @@ import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profi
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
 import { VoiceProfileService } from './voice-profile.service';
 import { StorageService } from '../storage/storage.service';
+import { ListStoriesQueryDto } from '../story/dto/list-stories-query.dto';
 
 const multerOptions = {
   storage: memoryStorage(),
@@ -79,6 +80,13 @@ export class VoiceProfileController {
     return {
       ...uploadSession,
       publicUrl: await this.wrapUrl(uploadSession.publicUrl),
+    };
+  }
+
+  private async wrapStory(story: any) {
+    return {
+      ...story,
+      audioUrl: await this.wrapUrl(story?.audioUrl),
     };
   }
 
@@ -197,5 +205,27 @@ export class VoiceProfileController {
   @ApiOperation({ summary: 'Delete voice profile' })
   remove(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.voiceProfileService.remove(user.id, id);
+  }
+
+  @Get(':id/stories')
+  @ApiOperation({ summary: 'List stories for a voice profile' })
+  async stories(
+    @CurrentUser() user: { id: string },
+    @Param('id') id: string,
+    @Query() query: ListStoriesQueryDto,
+  ) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 20);
+    const res = await this.voiceProfileService.listStories(user.id, id, page, limit);
+    const items = await Promise.all(
+      res.items.map((item) => this.wrapStory(item)),
+    );
+
+    return buildPaginatedResponse({
+      items,
+      total: res.total,
+      page,
+      limit,
+    });
   }
 }

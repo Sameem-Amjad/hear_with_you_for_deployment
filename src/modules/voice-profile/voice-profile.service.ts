@@ -465,4 +465,60 @@ export class VoiceProfileService {
 
     return { message: 'Voice profile deleted' };
   }
+
+  async listStories(
+    userId: string,
+    voiceProfileId: string,
+    page = 1,
+    limit = 20,
+  ) {
+    const voice = await this.prismaService.voiceProfile.findUnique({
+      where: { id: voiceProfileId },
+      select: { id: true, userId: true },
+    });
+    if (!voice || voice.userId !== userId)
+      throw new NotFoundException('Voice profile not found');
+
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await this.prismaService.$transaction([
+      this.prismaService.story.findMany({
+        where: { voiceProfileId, userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          userId: true,
+          voiceProfileId: true,
+          voiceProfile: { select: { typeCode: true } },
+          title: true,
+          content: true,
+          isFeatured: true,
+          promptUsed: true,
+          audioStatus: true,
+          audioUrl: true,
+          audioDuration: true,
+          audioFormat: true,
+          elevenLabsRequestId: true,
+          lastPlayedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prismaService.story.count({ where: { voiceProfileId, userId } }),
+    ]);
+
+    const mappedItems = items.map(({ voiceProfile, ...story }) => ({
+      ...story,
+      type: voiceProfile?.typeCode ?? null,
+    }));
+
+    return {
+      items: mappedItems,
+      total,
+      page,
+      limit,
+    };
+  }
 }
