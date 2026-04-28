@@ -2,11 +2,6 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class RecordStoryPlayDto {
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  childProfileId?: string;
-
   @ApiPropertyOptional({
     description: 'Playback position in seconds',
     default: false,

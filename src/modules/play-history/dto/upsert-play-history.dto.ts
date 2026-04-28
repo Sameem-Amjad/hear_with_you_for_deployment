@@ -14,11 +14,6 @@ export class UpsertPlayHistoryDto {
   @IsString()
   storyId: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  childProfileId?: string;
-
   @ApiPropertyOptional({ description: 'Playback position in seconds' })
   @IsOptional()
   @IsNumber()

@@ -29,13 +29,6 @@ export class GenerateStoryDto {
   @IsString()
   templateId?: string;
 
-  @ApiPropertyOptional({
-    description: 'Optional child profile id for personalization',
-  })
-  @IsOptional()
-  @IsString()
-  childProfileId?: string;
-
   @ApiPropertyOptional({ description: 'Optional custom user prompt additions' })
   @IsOptional()
   @IsString()

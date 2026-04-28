@@ -71,7 +71,6 @@ export class PlayHistoryService {
     userId: string,
     dto: {
       storyId: string;
-      childProfileId?: string;
       playbackPositionSeconds?: number;
       completionRate?: number;
       wasCompleted?: boolean;
@@ -94,7 +93,6 @@ export class PlayHistoryService {
       data: {
         storyId: dto.storyId,
         userId,
-        childProfileId: dto.childProfileId,
         duration: dto.playbackPositionSeconds,
         completionRate: dto.completionRate,
         wasCompleted: dto.wasCompleted ?? false,

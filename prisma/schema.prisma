@@ -55,19 +55,14 @@ model User {
   // Relations
   activityHistory     ActivityHistory[]
   otpRecords          OtpRecord[]
-  childProfiles       ChildProfile[]
   voiceProfiles       VoiceProfile[]
   stories             Story[]
-  favorites           Favorite[]
-  storyRatings        StoryRating[]
   playHistory         PlayHistory[]
   subscriptionHistory SubscriptionHistory[]
   payments            Payment[]
   usageHistory        UsageHistory[]
   queueJobs           QueueJob[]
   notifications       Notification[]
-  settings            UserSettings?
-  feedback            Feedback[]
   currentSubscriptionPlan SubscriptionPlan? @relation("UserCurrentSubscriptionPlan", fields: [currentSubscriptionPlanId], references: [id], onDelete: SetNull)
 
   @@index([email])
@@ -112,44 +107,6 @@ model OtpRecord {
   @@index([identifier, type, purpose])
   @@index([expiresAt])
   @@map("otp_records")
-}
-
-// ============================================
-// CHILD PROFILES
-// ============================================
-
-model ChildProfile {
-  id          String    @id @default(uuid())
-  userId      String
-  name        String
-  nickname    String?
-  age         Int
-  dateOfBirth DateTime?
-  gender      Gender?
-  avatar      String?
-
-  // Personalization
-  interests          String[] // Array of interests (animals, space, dinosaurs, etc.)
-  favoriteColors     String[]
-  favoriteCharacters String[]
-  readingLevel       ReadingLevel?
-
-  // Preferences
-  preferredThemes   StoryTheme[]
-  preferredDuration StoryDuration @default(MEDIUM)
-  bedtime           String? // e.g., "20:00"
-
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  stories       Story[]
-  playHistories PlayHistory[]
-
-  @@index([userId])
-  @@index([age])
-  @@map("child_profiles")
 }
 
 // ============================================
@@ -214,7 +171,6 @@ model VoiceProfile {
 model Story {
   id             String  @id @default(uuid())
   userId         String
-  childProfileId String?
   voiceProfileId String?
 
   // Story Content
@@ -224,12 +180,10 @@ model Story {
   moralLesson String?
 
   // Metadata
-  theme             StoryTheme
-  ageGroup          AgeGroup
-  duration          StoryDuration @default(MEDIUM)
-  language          String        @default("en")
-  wordCount         Int?
-  estimatedReadTime Int? // In seconds
+  theme       StoryTheme
+  ageGroup    AgeGroup
+  duration    StoryDuration @default(MEDIUM)
+  language    String        @default("en")
 
   // AI Generation Data
   promptUsed       String @db.Text
@@ -239,7 +193,6 @@ model Story {
 
   // Personalization
   characterNames String[] // Names used in story
-  customElements Json? // Custom story elements
 
   // Audio Data
   audioUrl      String?
@@ -249,10 +202,6 @@ model Story {
   audioFormat   String?     @default("mp3")
   audioStatus   AudioStatus @default(PENDING)
   audioError    String?     @db.Text
-
-  // ElevenLabs TTS Data
-  elevenLabsRequestId      String?
-  elevenLabsCharactersUsed Int?
 
   // Engagement
   playCount       Int    @default(0)
@@ -273,10 +222,7 @@ model Story {
   updatedAt DateTime @updatedAt
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
   voiceProfile VoiceProfile? @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
-  favorites    Favorite[]
-  ratings      StoryRating[]
   playHistory  PlayHistory[]
   queueJobs    QueueJob[]
 
@@ -290,51 +236,13 @@ model Story {
 }
 
 // ============================================
-// FAVORITES & RATINGS
-// ============================================
-
-model Favorite {
-  id        String   @id @default(uuid())
-  userId    String
-  storyId   String
-  createdAt DateTime @default(now())
-
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, storyId])
-  @@index([userId])
-  @@index([storyId])
-  @@map("favorites")
-}
-
-model StoryRating {
-  id        String   @id @default(uuid())
-  storyId   String
-  userId    String
-  rating    Int // 1-5
-  review    String?  @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([storyId, userId])
-  @@index([storyId])
-  @@index([userId])
-  @@map("story_ratings")
-}
-
-// ============================================
 // PLAY HISTORY & ANALYTICS
 // ============================================
 
 model PlayHistory {
-  id             String  @id @default(uuid())
-  storyId        String
-  userId         String
-  childProfileId String?
+  id       String  @id @default(uuid())
+  storyId  String
+  userId   String
 
   // Playback data
   duration       Int? // How long they listened (seconds)
@@ -347,13 +255,11 @@ model PlayHistory {
 
   playedAt DateTime @default(now())
 
-  story        Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  childProfile ChildProfile? @relation(fields: [childProfileId], references: [id], onDelete: SetNull)
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([storyId])
   @@index([userId])
-  @@index([childProfileId])
   @@index([playedAt])
   @@map("play_history")
 }
@@ -363,16 +269,13 @@ model PlayHistory {
 // ============================================
 
 model SubscriptionHistory {
-  id     String             @id @default(uuid())
-  userId String
+  id                 String             @id @default(uuid())
+  userId             String
   subscriptionPlanId String?
-  tier   SubscriptionTier
-  status SubscriptionStatus
+  tier               SubscriptionTier
+  status             SubscriptionStatus
 
-  // Stripe data
-  stripeSubscriptionId String?
-  stripePriceId        String?
-  stripeInvoiceId      String?
+  stripePriceId String?
 
   // Dates
   startDate  DateTime
@@ -392,7 +295,6 @@ model SubscriptionHistory {
 
   @@index([userId])
   @@index([subscriptionPlanId])
-  @@index([stripeSubscriptionId])
   @@map("subscription_history")
 }
 
@@ -426,11 +328,6 @@ model Payment {
   userId String
   subscriptionPlanId String?
 
-  // Stripe data
-  stripePaymentIntentId String? @unique
-  stripeChargeId        String?
-  stripeInvoiceId       String?
-
   // Payment details
   amount        Float
   currency      String        @default("usd")
@@ -452,7 +349,6 @@ model Payment {
   @@index([userId])
   @@index([subscriptionPlanId])
   @@index([status])
-  @@index([stripePaymentIntentId])
   @@map("payments")
 }
 
@@ -580,76 +476,6 @@ model StoryTemplate {
 }
 
 // ============================================
-// SETTINGS
-// ============================================
-
-model UserSettings {
-  id     String @id @default(uuid())
-  userId String @unique
-
-  // Notifications
-  emailNotifications     Boolean @default(true)
-  pushNotifications      Boolean @default(true)
-  storyReadyNotification Boolean @default(true)
-  weeklyDigest           Boolean @default(true)
-
-  // Privacy
-  profileVisibility   String  @default("private")
-  allowDataCollection Boolean @default(true)
-
-  // Preferences
-  defaultLanguage String      @default("en")
-  defaultAgeGroup AgeGroup?
-  defaultTheme    StoryTheme?
-  autoPlayNext    Boolean     @default(false)
-  downloadQuality String      @default("high")
-
-  // Parental Controls
-  contentFilter   String @default("strict")
-  maxDailyStories Int?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_settings")
-}
-
-// ============================================
-// FEEDBACK & SUPPORT
-// ============================================
-
-model Feedback {
-  id      String       @id @default(uuid())
-  userId  String?
-  type    FeedbackType
-  subject String
-  message String       @db.Text
-  rating  Int? // 1-5
-
-  // Context
-  page      String?
-  userAgent String?
-  metadata  Json?
-
-  // Status
-  status      String    @default("pending")
-  response    String?   @db.Text
-  respondedAt DateTime?
-  respondedBy String?
-
-  createdAt DateTime @default(now())
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([type])
-  @@index([status])
-  @@map("feedback")
-}
-
-// ============================================
 // PROVIDER CREDENTIALS (Dashboard-managed keys)
 // ============================================
 
@@ -667,26 +493,6 @@ model ProviderCredential {
   @@index([provider])
   @@index([isActive])
   @@map("provider_credentials")
-}
-
-// ============================================
-// STRIPE WEBHOOK EVENTS (Idempotency/audit)
-// ============================================
-
-model StripeWebhookEvent {
-  id          String        @id @default(uuid())
-  eventId     String        @unique
-  type        String
-  payload     Json
-  status      WebhookStatus @default(RECEIVED)
-  receivedAt  DateTime      @default(now())
-  processedAt DateTime?
-  error       String?       @db.Text
-
-  @@index([type])
-  @@index([status])
-  @@index([receivedAt])
-  @@map("stripe_webhook_events")
 }
 
 // ============================================

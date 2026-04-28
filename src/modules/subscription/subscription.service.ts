@@ -309,7 +309,6 @@ export class SubscriptionService {
     const existingTransaction = await this.prismaService.payment.findFirst({
       where: {
         userId,
-        stripeInvoiceId: dto.transactionId,
       },
       select: {
         id: true,
@@ -390,7 +389,6 @@ export class SubscriptionService {
         data: {
           userId,
           subscriptionPlanId,
-          stripeInvoiceId: dto.transactionId,
           amount,
           currency,
           status: PaymentStatus.SUCCEEDED,
@@ -418,7 +416,6 @@ export class SubscriptionService {
           tier: userTier,
           status,
           stripePriceId: dto.productId,
-          stripeInvoiceId: dto.transactionId,
           startDate,
           endDate,
           amount,

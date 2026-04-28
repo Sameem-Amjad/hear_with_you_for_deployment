@@ -206,7 +206,6 @@ export class AudioService {
             audioFormat: 'mp3',
             audioDuration,
             audioStatus: AudioStatus.COMPLETED,
-            elevenLabsCharactersUsed: totalChars,
           },
         });
 

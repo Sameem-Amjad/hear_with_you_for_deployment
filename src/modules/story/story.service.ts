@@ -197,12 +197,6 @@ export class StoryService {
       throw new ForbiddenException(API_MESSAGES.STORY.ERROR.LIMIT_REACHED);
     }
 
-    const child = dto.childProfileId
-      ? await this.prismaService.childProfile.findFirst({
-          where: { id: dto.childProfileId, userId },
-        })
-      : null;
-
     const system = this.promptService.buildSystemPrompt({
       ageGroup: resolvedAgeGroup,
       language: dto.language ?? 'en',
@@ -211,7 +205,7 @@ export class StoryService {
       theme: resolvedTheme,
       ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
-      child,
+      child: null,
       templatePrompt: selectedTemplate?.templatePrompt,
       customPrompt: dto.customPrompt,
     });
@@ -223,7 +217,6 @@ export class StoryService {
       ageGroup: resolvedAgeGroup,
       duration: dto.duration ?? StoryDuration.MEDIUM,
       language: dto.language ?? 'en',
-      childId: child?.id ?? null,
       templateId: selectedTemplate?.id ?? null,
       customPrompt: dto.customPrompt ?? '',
       maxTokens,
@@ -249,7 +242,6 @@ export class StoryService {
       const created = await tx.story.create({
         data: {
           userId,
-          childProfileId: child?.id,
           title: generated.title,
           content: generated.content,
           theme: resolvedTheme,
@@ -416,7 +408,6 @@ export class StoryService {
         data: {
           storyId,
           userId,
-          childProfileId: dto.childProfileId,
           duration: dto.playbackPositionSeconds,
           completionRate: dto.completionRate,
           wasCompleted: dto.wasCompleted ?? false,
