@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, Length } from 'class-validator';
 import { trimString } from '../../../common/utils/sanitizers.util';
 
 export class LoginPasswordDto {
@@ -15,4 +15,22 @@ export class LoginPasswordDto {
   @IsString()
   @IsNotEmpty()
   password: string;
+
+  @ApiProperty({ required: false, description: 'FCM registration token' })
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? trimString(value) : value,
+  )
+  @IsString()
+  @Length(20, 4096)
+  fcmToken?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: ['ios', 'android', 'web', 'unknown'],
+    description: 'Device platform for the FCM token',
+  })
+  @IsOptional()
+  @IsIn(['ios', 'android', 'web', 'unknown'])
+  pushPlatform?: 'ios' | 'android' | 'web' | 'unknown';
 }

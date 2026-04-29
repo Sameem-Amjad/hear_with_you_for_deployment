@@ -7,10 +7,17 @@ import {
 } from '@nestjs/common';
 import ffmpeg from 'fluent-ffmpeg';
 import ffprobeStatic from 'ffprobe-static';
-import { AudioStatus, Prisma, ResourceType, UsageAction } from '@prisma/client';
+import {
+  AudioStatus,
+  NotificationType,
+  Prisma,
+  ResourceType,
+  UsageAction,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
+import { NotificationService } from '../notification/notification.service';
 
 if (ffprobeStatic.path) {
   ffmpeg.setFfprobePath(ffprobeStatic.path);
@@ -24,6 +31,7 @@ export class AudioService {
     private readonly prismaService: PrismaService,
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private async getAudioDuration(url: string): Promise<number> {
@@ -246,6 +254,19 @@ export class AudioService {
         });
 
         return s;
+      });
+
+      await this.notificationService.notifyUser({
+        userId: params.userId,
+        type: NotificationType.STORY_READY,
+        title: 'Audio ready',
+        message: `Audio is ready for "${story.title}".`,
+        actionUrl: `/stories/${updated.id}`,
+        actionText: 'Listen now',
+        data: {
+          storyId: updated.id,
+          audioStatus: 'COMPLETED',
+        },
       });
 
       return {

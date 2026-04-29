@@ -8,6 +8,7 @@ import { LRUCache } from 'lru-cache';
 import { API_MESSAGES } from '../../common/constants/api.messages';
 import {
   AudioStatus,
+  NotificationType,
   SubscriptionTier,
   StoryTheme,
   StoryDuration,
@@ -15,6 +16,7 @@ import {
   ResourceType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import { StoryPromptService } from './story-prompt.service';
 import { OpenAiService } from './openai.service';
 import { GenerateStoryDto } from './dto/generate-story.dto';
@@ -65,6 +67,7 @@ export class StoryService {
     private readonly prismaService: PrismaService,
     private readonly promptService: StoryPromptService,
     private readonly openAiService: OpenAiService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private toStoryWithVoiceState<
@@ -283,6 +286,19 @@ export class StoryService {
           duration: dto.duration ?? StoryDuration.MEDIUM,
           templateId: selectedTemplate?.id ?? null,
         },
+      },
+    });
+
+    await this.notificationService.notifyUser({
+      userId,
+      type: NotificationType.STORY_READY,
+      title: 'Story ready',
+      message: `Your story "${story.title}" is ready to read.`,
+      actionUrl: `/stories/${story.id}`,
+      actionText: 'Open story',
+      data: {
+        storyId: story.id,
+        title: story.title,
       },
     });
 

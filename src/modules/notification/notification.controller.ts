@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +15,7 @@ import { CurrentUser } from '../../common/decorators/currentuser.decorator';
 import { NotificationService } from './notification.service';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
+import { RegisterPushTokenDto } from './dto/register-push-token.dto';
 
 @ApiTags('Notification')
 @ApiBearerAuth('firebaseauth')
@@ -41,5 +45,23 @@ export class NotificationController {
   @ApiOperation({ summary: 'Mark notification as read' })
   markRead(@CurrentUser() user: { id: string }, @Param('id') id: string) {
     return this.notificationService.markRead(user.id, id);
+  }
+
+  @Post('tokens')
+  @ApiOperation({ summary: 'Register an FCM push token' })
+  registerPushToken(
+    @CurrentUser() user: { id: string },
+    @Body() dto: RegisterPushTokenDto,
+  ) {
+    return this.notificationService.registerPushToken(user.id, dto);
+  }
+
+  @Delete('tokens')
+  @ApiOperation({ summary: 'Remove an FCM push token' })
+  removePushToken(
+    @CurrentUser() user: { id: string },
+    @Body() dto: RegisterPushTokenDto,
+  ) {
+    return this.notificationService.removePushToken(user.id, dto.token);
   }
 }

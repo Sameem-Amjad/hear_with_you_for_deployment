@@ -1,8 +1,10 @@
 import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsIn,
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Length,
   MinLength,
@@ -48,4 +50,22 @@ export class VerifyEmailRegisterDto {
     message: 'Confirm password does not match password',
   })
   confirmPassword: string;
+
+  @ApiProperty({ required: false, description: 'FCM registration token' })
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? trimString(value) : value,
+  )
+  @IsString()
+  @Length(20, 4096)
+  fcmToken?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: ['ios', 'android', 'web', 'unknown'],
+    description: 'Device platform for the FCM token',
+  })
+  @IsOptional()
+  @IsIn(['ios', 'android', 'web', 'unknown'])
+  pushPlatform?: 'ios' | 'android' | 'web' | 'unknown';
 }

@@ -19,6 +19,7 @@ import { VerifyEmailRegisterDto } from './dto/verifyemailregister.dto';
 import { VerifyForgotPasswordDto } from './dto/verifyforgotpassword.dto';
 import { VerifyPhoneRegisterDto } from './dto/verifyphoneregister.dto';
 import { ResendOtpDto, ResendOtpPurpose } from './dto/resendotp.dto';
+import { RegisterPushTokenDto } from '../notification/dto/register-push-token.dto';
 import { AuthService } from './auth.service';
 import { API_PATHS } from '../../common/constants/api.paths';
 import { SWAGGER_META } from '../../common/constants/swagger.meta';
@@ -163,5 +164,19 @@ export class AuthController {
   })
   logout(@CurrentUser() user: never) {
     return this.authService.logout(user);
+  }
+
+  @Post(API_PATHS.AUTH.FCM_TOKEN)
+  @UseGuards(FirebaseAuthGuard)
+  @ApiBearerAuth('firebaseauth')
+  @ApiOperation({
+    summary: 'Register user FCM token',
+    description: 'Save or refresh a user FCM token using the auth bearer token',
+  })
+  registerFcmToken(
+    @CurrentUser() user: { id: string },
+    @Body() dto: RegisterPushTokenDto,
+  ) {
+    return this.authService.registerFcmToken(user.id, dto);
   }
 }

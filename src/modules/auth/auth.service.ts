@@ -9,12 +9,14 @@ import { AuthProvider, OtpPurpose, OtpType, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { FirebaseService } from '../firebase/firebase.service';
+import { NotificationService } from '../notification/notification.service';
 import { OtpService } from '../otp/otp.service';
 import { MailService } from '../mail/mail.service';
 import { SmsService } from '../sms/sms.service';
 import { ActivityService } from '../activity/activity.service';
 import { StorageService } from '../storage/storage.service';
 import { UserResponseDto } from '../user/dto/userresponse.dto';
+import { RegisterPushTokenDto } from '../notification/dto/register-push-token.dto';
 import { SocialLoginDto } from './dto/sociallogin.dto';
 import { EmailRegisterDto } from './dto/emailregister.dto';
 import { VerifyEmailRegisterDto } from './dto/verifyemailregister.dto';
@@ -38,6 +40,7 @@ export class AuthService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly firebaseService: FirebaseService,
+    private readonly notificationService: NotificationService,
     private readonly otpService: OtpService,
     private readonly mailService: MailService,
     private readonly smsService: SmsService,
@@ -53,6 +56,21 @@ export class AuthService {
     return UserResponseDto.fromUser({
       ...user,
       profilePicture,
+    });
+  }
+
+  private async registerPushTokenIfProvided(params: {
+    userId: string;
+    fcmToken?: string;
+    pushPlatform?: 'ios' | 'android' | 'web' | 'unknown';
+  }): Promise<void> {
+    if (!params.fcmToken) {
+      return;
+    }
+
+    await this.notificationService.registerPushToken(params.userId, {
+      token: params.fcmToken,
+      platform: params.pushPlatform,
     });
   }
 
@@ -110,6 +128,11 @@ export class AuthService {
       action: 'social_login',
       description: `${dto.provider} social login`,
       metadata: { provider: dto.provider, isNewUser },
+    });
+    await this.registerPushTokenIfProvided({
+      userId: user.id,
+      fcmToken: dto.fcmToken,
+      pushPlatform: dto.pushPlatform,
     });
 
     return {
@@ -213,6 +236,11 @@ export class AuthService {
         userId: user.id,
         action: 'email_registration',
         description: 'Email registration completed',
+      });
+      await this.registerPushTokenIfProvided({
+        userId: user.id,
+        fcmToken: dto.fcmToken,
+        pushPlatform: dto.pushPlatform,
       });
       await this.mailService.sendWelcomeEmail(email, user.name ?? undefined);
 
@@ -382,6 +410,11 @@ export class AuthService {
         action: 'phone_registration',
         description: 'Phone registration completed',
       });
+      await this.registerPushTokenIfProvided({
+        userId: user.id,
+        fcmToken: dto.fcmToken,
+        pushPlatform: dto.pushPlatform,
+      });
 
       return {
         message: API_MESSAGES.AUTH.SUCCESS.REGISTRATION_SUCCESS,
@@ -435,6 +468,11 @@ export class AuthService {
       action: 'password_login',
       description: 'Password login successful',
     });
+    await this.registerPushTokenIfProvided({
+      userId: updatedUser.id,
+      fcmToken: dto.fcmToken,
+      pushPlatform: dto.pushPlatform,
+    });
 
     return {
       message: API_MESSAGES.AUTH.SUCCESS.LOGIN_SUCCESS,
@@ -450,6 +488,10 @@ export class AuthService {
       description: 'User logged out',
     });
     return { message: API_MESSAGES.AUTH.SUCCESS.LOGOUT_SUCCESS };
+  }
+
+  async registerFcmToken(userId: string, dto: RegisterPushTokenDto) {
+    return this.notificationService.registerPushToken(userId, dto);
   }
 
   private async ensureEmailNotRegistered(email: string): Promise<void> {

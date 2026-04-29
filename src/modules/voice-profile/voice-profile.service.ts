@@ -6,9 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { parseBuffer } from 'music-metadata';
-import { Prisma, VoiceProfile, VoiceStatus } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  VoiceProfile,
+  VoiceStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { NotificationService } from '../notification/notification.service';
 import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profile.dto';
 import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
@@ -23,6 +29,7 @@ export class VoiceProfileService {
     private readonly prismaService: PrismaService,
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private toClientVoiceProfile<T extends { type?: unknown; typeCode?: number }>(
@@ -131,6 +138,19 @@ export class VoiceProfileService {
       await this.prismaService.user.update({
         where: { id: params.userId },
         data: { voiceProfilesCount: activeVoiceCount },
+      });
+
+      await this.notificationService.notifyUser({
+        userId: params.userId,
+        type: NotificationType.VOICE_READY,
+        title: 'Voice profile ready',
+        message: `Your voice profile "${updated.name}" is ready.`,
+        actionUrl: `/voice-profiles/${updated.id}`,
+        actionText: 'View voice profile',
+        data: {
+          voiceProfileId: updated.id,
+          name: updated.name,
+        },
       });
 
       return {

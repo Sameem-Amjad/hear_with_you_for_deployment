@@ -21,6 +21,7 @@ export const API_PATHS = {
       ResendOtp: 'password/resend-otp',
       RESET: 'password/reset',
     },
+    FCM_TOKEN: 'fcm-token',
     LOGOUT: 'logout',
   },
   USER: {

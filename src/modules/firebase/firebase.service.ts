@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { App, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { Auth, DecodedIdToken, UserRecord, getAuth } from 'firebase-admin/auth';
+import {
+  BatchResponse,
+  MulticastMessage,
+  getMessaging,
+} from 'firebase-admin/messaging';
 
 @Injectable()
 export class FirebaseService {
@@ -27,6 +32,40 @@ export class FirebaseService {
             }),
           });
     this.auth = getAuth(this.app);
+  }
+
+  async sendPushNotification(params: {
+    tokens: string[];
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+    imageUrl?: string;
+  }): Promise<BatchResponse | null> {
+    if (!params.tokens.length) {
+      return null;
+    }
+
+    const message: MulticastMessage = {
+      tokens: params.tokens,
+      notification: {
+        title: params.title,
+        body: params.body,
+        imageUrl: params.imageUrl,
+      },
+      data: params.data,
+      android: {
+        priority: 'high',
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+          },
+        },
+      },
+    };
+
+    return getMessaging(this.app).sendEachForMulticast(message);
   }
 
   async verifyIdToken(idToken: string): Promise<DecodedIdToken> {
