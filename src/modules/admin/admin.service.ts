@@ -50,6 +50,10 @@ export class AdminService {
     return this.dashboardService.dashboardRecentActivity(page, limit);
   }
 
+  dashboardCombined(opts: { range?: string; from?: string; to?: string; page?: number; limit?: number }) {
+    return this.dashboardService.dashboardCombined(opts);
+  }
+
   listUsers(
     page = 1,
     limit = 20,

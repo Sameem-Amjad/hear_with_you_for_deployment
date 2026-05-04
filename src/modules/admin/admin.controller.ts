@@ -24,6 +24,7 @@ import { CurrentUser } from '../../common/decorators/currentuser.decorator';
 import { AdminStoriesQueryDto } from './dto/admin-stories-query.dto';
 import { AdminTransactionsQueryDto } from './dto/admin-transactions-query.dto';
 import { AdminUsersQueryDto } from './dto/admin-users-query.dto';
+import { AdminDashboardQueryDto } from './dto/admin-dashboard-query.dto';
 import { FeatureStoryDto } from './dto/feature-story.dto';
 import { RangeQueryDto } from './dto/range-query.dto';
 import { AdminTemplatesQueryDto } from './dto/admin-templates-query.dto';
@@ -75,6 +76,20 @@ export class AdminController {
   @ApiOperation({ summary: 'Dashboard overview with growth deltas' })
   dashboardOverview(@Query() query: RangeQueryDto) {
     return this.adminService.dashboardOverview(query.range ?? '30d');
+  }
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Combined dashboard endpoint with KPIs, series and recent activity' })
+  async dashboard(@Query() query: AdminDashboardQueryDto) {
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 10);
+    return this.adminService.dashboardCombined({
+      range: query.range,
+      from: query.from,
+      to: query.to,
+      page,
+      limit,
+    });
   }
 
   @Get('dashboard/revenue')
