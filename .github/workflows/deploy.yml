@@ -41,12 +41,13 @@ jobs:
             mkdir -p ~/app
             tar -xzf ~/app/repo.tar.gz -C ~/app
             cd ~/app
-            # copy example env if missing
-            if [ ! -f .env ] && [ -f .env.example ]; then
-              cp .env.example .env
+            # require .env to exist (must be created manually with production secrets)
+            if [ ! -f .env ]; then
+              echo "ERROR: ~/app/.env is missing on droplet. Create it before deploying."
+              exit 1
             fi
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            docker compose -f docker-compose.prod.yml build
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
             # run prisma migrations if present
-            docker compose exec -T app npx prisma migrate deploy || true
+            docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || true
           EOF
