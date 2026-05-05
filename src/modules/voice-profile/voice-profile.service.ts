@@ -324,7 +324,7 @@ export class VoiceProfileService {
     const skip = (page - 1) * limit;
     const [items, total] = await this.prismaService.$transaction([
       this.prismaService.voiceProfile.findMany({
-        where: { userId, isActive: true },
+        where: { userId, isActive: true, elevenLabsVoiceId: { not: null } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
