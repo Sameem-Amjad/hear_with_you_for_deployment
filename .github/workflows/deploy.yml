@@ -1,0 +1,51 @@
+name: CI/CD Deploy (Droplet)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-to-droplet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create tarball of repo
+        run: |
+          tar --exclude='.git' --exclude='node_modules' -czf repo.tar.gz .
+
+      - name: Copy archive to droplet
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          echo "$DEPLOY_SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          mkdir -p /tmp/deploy
+          scp -o StrictHostKeyChecking=no -i /tmp/deploy_key repo.tar.gz $DEPLOY_USER@$DEPLOY_HOST:~/app/repo.tar.gz
+
+      - name: Remote deploy (extract, build, up)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          echo "$DEPLOY_SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -o StrictHostKeyChecking=no -i /tmp/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+            set -e
+            mkdir -p ~/app
+            tar -xzf ~/app/repo.tar.gz -C ~/app
+            cd ~/app
+            # copy example env if missing
+            if [ ! -f .env ] && [ -f .env.example ]; then
+              cp .env.example .env
+            fi
+            docker compose build --no-cache
+            docker compose up -d --remove-orphans
+            # run prisma migrations if present
+            docker compose exec -T app npx prisma migrate deploy || true
+          EOF
