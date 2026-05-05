@@ -324,8 +324,10 @@ export class StoryService {
     options?: { favorite?: boolean; recent?: boolean },
   ) {
     const skip = (page - 1) * limit;
-    const where = {
+    const where: any = {
       userId,
+      // Exclude stories whose voice's ElevenLabs voice id is null (not cloned)
+      voiceProfile: { is: { elevenLabsVoiceId: { not: null } } },
       ...(options?.favorite ? { isFeatured: true } : {}),
       ...(options?.recent ? { audioStatus: AudioStatus.COMPLETED } : {}),
     };

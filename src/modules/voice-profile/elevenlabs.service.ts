@@ -61,7 +61,23 @@ export class ElevenLabsService {
       return { voice_id: response.voiceId };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`ElevenLabs addVoice failed: ${message}`);
+      // Try to log richer details from the client error (response body/status)
+      let details = '';
+      try {
+        const anyErr = error as any;
+        if (anyErr?.response) {
+          // axios-like
+          details = JSON.stringify(anyErr.response?.data ?? anyErr.response, null, 2);
+        } else if (anyErr?.body) {
+          details = JSON.stringify(anyErr.body, null, 2);
+        } else {
+          details = JSON.stringify(anyErr, null, 2);
+        }
+      } catch (e) {
+        details = String(error);
+      }
+
+      this.logger.warn(`ElevenLabs addVoice failed: ${message} details=${details}`);
       throw new Error('ElevenLabs voice cloning failed');
     }
   }

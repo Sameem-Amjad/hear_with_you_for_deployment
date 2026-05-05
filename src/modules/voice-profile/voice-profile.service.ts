@@ -20,6 +20,7 @@ import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
 import { ElevenLabsService } from './elevenlabs.service';
+import { extname } from 'path';
 
 @Injectable()
 export class VoiceProfileService {
@@ -227,6 +228,22 @@ export class VoiceProfileService {
         path: '',
         stream: undefined as never,
       };
+
+      this.logger.log(
+        `Downloaded voice sample ${file.originalname} size=${buffer.length} mimetype=${mimetype}`,
+      );
+
+      if (buffer.length === 0) {
+        this.logger.warn(`Downloaded audio buffer for key=${key} is empty`);
+        throw new BadRequestException('Uploaded audio file is empty');
+      }
+
+      const extension = extname(file.originalname).toLowerCase();
+      const supportedExt = new Set(['.mp3', '.wav', '.mpeg', '.mpga','.m4a']);
+      if (!supportedExt.has(extension)) {
+        this.logger.warn(`Unsupported audio extension uploaded: ${file.originalname}`);
+        throw new BadRequestException('Only mp3 and wav audio files are supported for cloning. Please re-upload as mp3 or wav.');
+      }
 
       this.storageService.validateAudioFile(file);
       const metadata = await parseBuffer(buffer, mimetype, {
