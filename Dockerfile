@@ -1,6 +1,13 @@
-FROM node:20-bullseye-slim AS builder
+FROM node:20-bookworm-slim AS builder
 
-RUN apt-get update && apt-get install -y python3 build-essential ffmpeg ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    for i in 1 2 3; do \
+      apt-get update && \
+      apt-get install -y --no-install-recommends --fix-missing \
+        python3 build-essential ca-certificates openssl && \
+      rm -rf /var/lib/apt/lists/* && break || \
+      { echo "apt-get failed (attempt $i), retrying..."; sleep 5; }; \
+    done
 
 WORKDIR /usr/src/app
 
@@ -10,12 +17,22 @@ RUN npm ci --unsafe-perm || npm install
 
 # copy sources and build
 COPY . .
+RUN npx prisma generate
 RUN npm run build
 
 RUN npm prune --production
 
-FROM node:20-bullseye-slim AS runner
-RUN apt-get update && apt-get install -y ffmpeg ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
+FROM node:20-bookworm-slim AS runner
+
+RUN set -eux; \
+    for i in 1 2 3; do \
+      apt-get update && \
+      apt-get install -y --no-install-recommends --fix-missing \
+        ffmpeg ca-certificates openssl && \
+      rm -rf /var/lib/apt/lists/* && break || \
+      { echo "apt-get failed (attempt $i), retrying..."; sleep 5; }; \
+    done
+
 WORKDIR /usr/src/app
 
 COPY --from=builder /usr/src/app/package.json ./
