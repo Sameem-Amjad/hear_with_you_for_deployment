@@ -317,8 +317,15 @@ export class StorageService {
 
   async deleteFile(fileUrl: string): Promise<void> {
     try {
-      const parsed = new URL(fileUrl);
-      const key = parsed.pathname.replace(/^\//, '');
+      let key: string;
+      try {
+        const parsed = new URL(fileUrl);
+        key = parsed.pathname.replace(/^\//, '');
+      } catch (err) {
+        // Not a full URL, treat as object key or encoded path
+        key = this.extractKey(fileUrl);
+      }
+
       await this.client.send(
         new DeleteObjectCommand({
           Bucket: this.bucket,

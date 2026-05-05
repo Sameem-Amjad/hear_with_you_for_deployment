@@ -30,6 +30,8 @@ export const API_MESSAGES = {
     SUCCESS: {
       PROFILE_SETUP: 'Profile setup successful',
       PROFILE_UPDATED: 'Profile updated successfully',
+      ACCOUNT_SOFT_DELETED: 'Account soft-deleted and anonymized',
+      ACCOUNT_HARD_DELETED: 'Account permanently deleted',
     },
     ERROR: {
       USERNAME_TAKEN: 'Username is already taken',

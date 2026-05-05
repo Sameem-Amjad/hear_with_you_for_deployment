@@ -6,6 +6,7 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  Delete,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -24,6 +25,9 @@ import { UserService } from './user.service';
 import { Body } from '@nestjs/common';
 import { API_PATHS } from '../../common/constants/api.paths';
 import { SWAGGER_META } from '../../common/constants/swagger.meta';
+// ApiOperation already imported above
+import { AdminGuard } from '../../common/guards/admin.guard';
+import { Param } from '@nestjs/common';
 
 const multerOptions = {
   storage: memoryStorage(),
@@ -76,5 +80,18 @@ export class UserController {
     @UploadedFile() profilePicture?: Express.Multer.File,
   ) {
     return this.userService.updateProfile(user.id, dto, profilePicture);
+  }
+
+  @Delete('soft')
+  @ApiOperation({ summary: 'Soft-delete account (anonymize, delete Firebase account)' })
+  async softDelete(@CurrentUser() user: { id: string }) {
+    return this.userService.softDeleteAccount(user.id);
+  }
+
+  @Delete('hard/:userId')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Hard-delete account (admin only) - delete all user data' })
+  async hardDelete(@Param('userId') userId: string) {
+    return this.userService.hardDeleteAccount(userId);
   }
 }
