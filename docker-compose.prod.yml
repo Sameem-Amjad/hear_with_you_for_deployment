@@ -12,10 +12,7 @@ services:
       retries: 5
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: hear-with-you-app:latest
+    image: ${APP_IMAGE}
     restart: unless-stopped
     env_file: .env
     ports:
@@ -30,7 +27,7 @@ services:
         max-file: "5"
 
   worker:
-    image: hear-with-you-app:latest
+    image: ${APP_IMAGE}
     restart: unless-stopped
     env_file: .env
     depends_on:
