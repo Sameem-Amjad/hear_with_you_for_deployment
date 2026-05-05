@@ -14,7 +14,8 @@ jobs:
 
       - name: Create tarball of repo
         run: |
-          tar --exclude='.git' --exclude='node_modules' -czf repo.tar.gz .
+          tar --exclude='.git' --exclude='node_modules' --exclude='./repo.tar.gz' -czf /tmp/repo.tar.gz .
+          mv /tmp/repo.tar.gz repo.tar.gz
 
       - name: Copy archive to droplet
         env:
@@ -24,7 +25,7 @@ jobs:
         run: |
           echo "$DEPLOY_SSH_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
-          mkdir -p /tmp/deploy
+          ssh -o StrictHostKeyChecking=no -i /tmp/deploy_key $DEPLOY_USER@$DEPLOY_HOST "mkdir -p ~/app"
           scp -o StrictHostKeyChecking=no -i /tmp/deploy_key repo.tar.gz $DEPLOY_USER@$DEPLOY_HOST:~/app/repo.tar.gz
 
       - name: Remote deploy (extract, build, up)
