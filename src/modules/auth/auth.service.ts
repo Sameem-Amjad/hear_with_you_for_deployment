@@ -18,6 +18,7 @@ import { StorageService } from '../storage/storage.service';
 import { UserResponseDto } from '../user/dto/userresponse.dto';
 import { RegisterPushTokenDto } from '../notification/dto/register-push-token.dto';
 import { SocialLoginDto } from './dto/sociallogin.dto';
+import { PLAN_IDS } from '../../common/constants/plan.constants';
 import { EmailRegisterDto } from './dto/emailregister.dto';
 import { VerifyEmailRegisterDto } from './dto/verifyemailregister.dto';
 import { ForgotPasswordDto } from './dto/forgotpassword.dto';
@@ -102,6 +103,7 @@ export class AuthService {
           provider: dto.provider,
           isProfileComplete: false,
           lastActiveAt: new Date(),
+          currentSubscriptionPlanId: PLAN_IDS.FREE,
         },
       });
       isNewUser = true;
@@ -219,6 +221,7 @@ export class AuthService {
             isProfileComplete: false,
             lastActiveAt: new Date(),
             name,
+            currentSubscriptionPlanId: PLAN_IDS.FREE,
           },
         });
 
@@ -391,6 +394,7 @@ export class AuthService {
             provider: AuthProvider.PHONE,
             isProfileComplete: false,
             lastActiveAt: new Date(),
+            currentSubscriptionPlanId: PLAN_IDS.FREE,
           },
         });
 

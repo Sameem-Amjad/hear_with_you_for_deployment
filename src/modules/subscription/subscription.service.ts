@@ -12,6 +12,7 @@ import {
   SubscriptionTier,
 } from '@prisma/client';
 import { IapPlatform, ValidateIapReceiptDto } from './dto/validate-iap-receipt.dto';
+import { PLAN_IDS } from '../../common/constants/plan.constants';
 
 type PlanSettings = {
   id: string;
@@ -35,7 +36,7 @@ export class SubscriptionService {
   private getFallbackPlanSettings(): Record<string, PlanSettings> {
     return {
       FREE: {
-        id: 'plan_free',
+        id: PLAN_IDS.FREE,
         code: 'FREE',
         displayName: 'Basic',
         displayPrice: 0,
@@ -49,7 +50,7 @@ export class SubscriptionService {
         isActive: true,
       },
       PREMIUM: {
-        id: 'plan_premium',
+        id: PLAN_IDS.PREMIUM,
         code: 'PREMIUM',
         displayName: 'Premium',
         displayPrice: Number(this.configService.get('IAP_PREMIUM_PRICE') ?? 9.99),
@@ -63,7 +64,7 @@ export class SubscriptionService {
         isActive: true,
       },
       PLATINUM: {
-        id: 'plan_platinum',
+        id: PLAN_IDS.PLATINUM,
         code: 'PLATINUM',
         displayName: 'Platinum',
         displayPrice: Number(
@@ -79,7 +80,7 @@ export class SubscriptionService {
         isActive: true,
       },
       ENTERPRISE: {
-        id: 'plan_enterprise',
+        id: PLAN_IDS.ENTERPRISE,
         code: 'ENTERPRISE',
         displayName: 'Enterprise',
         displayPrice: Number(

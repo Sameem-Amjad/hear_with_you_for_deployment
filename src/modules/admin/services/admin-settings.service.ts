@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { CredentialProvider } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProviderCredentialsService } from '../../provider-credentials/provider-credentials.service';
+import { PLAN_IDS } from '../../../common/constants/plan.constants';
 
 @Injectable()
 export class AdminSettingsService {
@@ -15,7 +16,7 @@ export class AdminSettingsService {
   getPlanDefaults() {
     return {
       FREE: {
-        id: 'plan_free',
+        id: PLAN_IDS.FREE,
         code: 'FREE',
         displayName: 'Basic',
         displayPrice: 0,
@@ -27,7 +28,7 @@ export class AdminSettingsService {
         storeProductIds: { ios: '', android: '' },
       },
       PREMIUM: {
-        id: 'plan_premium',
+        id: PLAN_IDS.PREMIUM,
         code: 'PREMIUM',
         displayName: 'Premium',
         displayPrice: Number(this.configService.get('IAP_PREMIUM_PRICE') ?? 9.99),
@@ -39,7 +40,7 @@ export class AdminSettingsService {
         storeProductIds: { ios: '', android: '' },
       },
       PLATINUM: {
-        id: 'plan_platinum',
+        id: PLAN_IDS.PLATINUM,
         code: 'PLATINUM',
         displayName: 'Platinum',
         displayPrice: Number(
@@ -53,7 +54,7 @@ export class AdminSettingsService {
         storeProductIds: { ios: '', android: '' },
       },
       ENTERPRISE: {
-        id: 'plan_enterprise',
+        id: PLAN_IDS.ENTERPRISE,
         code: 'ENTERPRISE',
         displayName: 'Enterprise',
         displayPrice: Number(
