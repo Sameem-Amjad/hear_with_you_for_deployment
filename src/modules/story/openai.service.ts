@@ -38,7 +38,17 @@ export class OpenAiService {
       response_format: { type: 'json_object' },
     });
 
-    const content = res.choices[0]?.message?.content ?? '{}';
+    const choice = res.choices[0];
+    if (choice?.finish_reason === 'length') {
+      this.logger.error(
+        `OpenAI response truncated (finish_reason=length). ` +
+          `Requested max_tokens=${params.maxTokens ?? 1200}, ` +
+          `used=${res.usage?.total_tokens}. Increase the tier token cap.`,
+      );
+      throw new Error('OpenAI response truncated — token limit too low');
+    }
+
+    const content = choice?.message?.content ?? '{}';
     try {
       return {
         json: JSON.parse(content) as unknown,
@@ -46,7 +56,9 @@ export class OpenAiService {
         tokensUsed: res.usage?.total_tokens,
       };
     } catch {
-      this.logger.warn(`OpenAI returned non-JSON: ${content.slice(0, 200)}`);
+      this.logger.error(
+        `OpenAI returned non-JSON (finish_reason=${choice?.finish_reason}): ${content.slice(0, 300)}`,
+      );
       throw new Error('OpenAI response parsing failed');
     }
   }

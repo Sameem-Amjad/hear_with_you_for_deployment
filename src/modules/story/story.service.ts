@@ -55,8 +55,8 @@ export const storyReadSelect = {
 
 @Injectable()
 export class StoryService {
-  private static readonly FREE_TIER_MAX_TOKENS = 100;
-  private static readonly PAID_TIER_MAX_TOKENS = 1000;
+  private static readonly FREE_TIER_MAX_TOKENS = 900;
+  private static readonly PAID_TIER_MAX_TOKENS = 1800;
 
   private readonly cache = new LRUCache<string, GeneratedStory>({
     max: 5000,
