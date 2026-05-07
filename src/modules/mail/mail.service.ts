@@ -21,11 +21,14 @@ export class MailService {
       host: this.configService.getOrThrow<string>('SMTP_HOST'),
       port: this.configService.getOrThrow<number>('SMTP_PORT'),
       secure: false,
-      requireTLS: true,
+      // requireTLS: true,
       auth: {
         user: this.configService.getOrThrow<string>('SMTP_USER'),
         pass: this.configService.getOrThrow<string>('SMTP_PASS'),
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
   }
 
