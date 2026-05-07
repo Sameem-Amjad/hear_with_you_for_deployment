@@ -21,6 +21,7 @@ export class MailService {
       host: this.configService.getOrThrow<string>('SMTP_HOST'),
       port: this.configService.getOrThrow<number>('SMTP_PORT'),
       secure: false,
+      // requireTLS: true,
       auth: {
         user: this.configService.getOrThrow<string>('SMTP_USER'),
         pass: this.configService.getOrThrow<string>('SMTP_PASS'),
