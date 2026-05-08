@@ -70,6 +70,8 @@ export class AdminManagementService {
           subscriptionTier: true,
           subscriptionStatus: true,
           currentSubscriptionPlanId: true,
+          voiceProfilesCount: true,
+          audioGeneratedThisMonth: true,
           currentSubscriptionPlan: {
             select: {
               code: true,
@@ -103,8 +105,8 @@ export class AdminManagementService {
           subscriptionPlanCode: user.currentSubscriptionPlan?.code ?? null,
           subscriptionPlanName: user.currentSubscriptionPlan?.displayName ?? null,
           subscriptionStatus: user.subscriptionStatus,
-          voicesCount: user._count.voiceProfiles,
-          storiesCount: user._count.stories,
+          voicesCount: user.voiceProfilesCount,
+          storiesCount: user.audioGeneratedThisMonth,
           createdAt: user.createdAt,
           lastActiveAt: user.lastActiveAt,
         })),
