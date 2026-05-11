@@ -19,7 +19,8 @@ import { CompleteUploadVoiceProfileDto } from './dto/complete-upload-voice-profi
 import { CreateUploadSessionDto } from './dto/create-upload-session.dto';
 import { CreateVoiceProfileDto } from './dto/create-voice-profile.dto';
 import { UpdateVoiceProfileDto } from './dto/update-voice-profile.dto';
-import { ElevenLabsService } from './elevenlabs.service';
+import { ElevenLabsService, ELEVENLABS_ERR } from './elevenlabs.service';
+import { MailService } from '../mail/mail.service';
 import { extname } from 'path';
 
 @Injectable()
@@ -31,6 +32,7 @@ export class VoiceProfileService {
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   private toClientVoiceProfile<T extends { type?: unknown; typeCode?: number }>(
@@ -170,7 +172,24 @@ export class VoiceProfileService {
         where: { id: voiceProfile.id },
         data: { status: VoiceStatus.FAILED, processingError: msg },
       });
-      throw new BadRequestException('Voice cloning failed');
+
+      if (msg === ELEVENLABS_ERR.VOICE_LIMIT_REACHED) {
+        void this.mailService.sendAdminAlert(
+          'ACTION REQUIRED: ElevenLabs custom voice limit reached',
+          `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <h2 style="color:#c0392b">ElevenLabs Voice Limit Reached</h2>
+            <p>A user tried to clone a new voice but the ElevenLabs account has hit its <strong>custom voice limit (30/30)</strong>.</p>
+            <table style="border-collapse:collapse;width:100%">
+              <tr><td style="padding:6px 12px;font-weight:bold">Time</td><td style="padding:6px 12px">${new Date().toISOString()}</td></tr>
+              <tr style="background:#f5f5f5"><td style="padding:6px 12px;font-weight:bold">User ID</td><td style="padding:6px 12px">${params.userId}</td></tr>
+              <tr><td style="padding:6px 12px;font-weight:bold">Voice name</td><td style="padding:6px 12px">${params.name}</td></tr>
+            </table>
+            <p style="margin-top:20px">Please <strong>upgrade your ElevenLabs plan</strong> or delete unused voices to allow new clones.</p>
+          </div>`,
+        );
+      }
+
+      throw new BadRequestException(`Voice cloning failed: ${msg}`);
     }
   }
 

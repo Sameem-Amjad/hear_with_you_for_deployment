@@ -11,7 +11,7 @@ import {
   SubscriptionStatus,
   SubscriptionTier,
 } from '@prisma/client';
-import { IapPlatform, ValidateIapReceiptDto } from './dto/validate-iap-receipt.dto';
+import { IapPlatform, SaveSubscriptionDto } from './dto/validate-iap-receipt.dto';
 import { PLAN_IDS } from '../../common/constants/plan.constants';
 
 type PlanSettings = {
@@ -261,20 +261,6 @@ export class SubscriptionService {
       : PaymentMethod.GOOGLE_PAY;
   }
 
-  private validatePurchasePayload(dto: ValidateIapReceiptDto) {
-    if (!dto.productId ) {
-      throw new BadRequestException('Missing IAP Product Id metadata');
-    }
-  }
-
-  private parseIsoDate(dateValue: string, fieldName: string): Date {
-    const parsed = new Date(dateValue);
-    if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException(`${fieldName} must be a valid ISO date string`);
-    }
-    return parsed;
-  }
-
   async getPlans() {
     const plans = await this.getResolvedPlanSettings();
 
@@ -304,218 +290,168 @@ export class SubscriptionService {
     };
   }
 
-  async validateIapReceipt(userId: string, dto: ValidateIapReceiptDto) {
-    this.validatePurchasePayload(dto);
+  async saveSubscription(userId: string, dto: SaveSubscriptionDto) {
+    if (!dto.productId?.trim()) {
+      return this.downgradeToFree(userId);
+    }
 
-    const existingTransaction = await this.prismaService.payment.findFirst({
-      where: {
-        userId,
-      },
-      select: {
-        id: true,
-      },
+    const plan = await this.resolvePlanFromProductId(dto.productId);
+    if (!plan || plan.code === 'FREE') {
+      return this.downgradeToFree(userId);
+    }
+
+    const durationDays = this.resolveDurationDays(plan, dto.productId);
+    const now = new Date();
+    const endDate =
+      durationDays > 0
+        ? new Date(now.getTime() + durationDays * 86_400_000)
+        : null;
+
+    const userTier = Object.values(SubscriptionTier).includes(
+      plan.code as SubscriptionTier,
+    )
+      ? (plan.code as SubscriptionTier)
+      : SubscriptionTier.PREMIUM;
+
+    const paymentMethod = this.paymentMethodForPlatform(
+      dto.platform ?? IapPlatform.ANDROID,
+    );
+
+    // Deduplicate: only create a new payment record if none exists in the current billing period
+    const periodStart =
+      durationDays > 0
+        ? new Date(now.getTime() - durationDays * 86_400_000)
+        : now;
+
+    const existingPayment = await this.prismaService.payment.findFirst({
+      where: { userId, paymentMethod, paidAt: { gte: periodStart } },
+      select: { id: true },
     });
 
-    if (existingTransaction) {
-      const existingUser = await this.prismaService.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          currentSubscriptionPlanId: true,
-          subscriptionStatus: true,
-          subscriptionStartDate: true,
-          subscriptionEndDate: true,
-        },
-      });
+    await this.prismaService.$transaction(async (tx) => {
+      if (!existingPayment) {
+        await tx.payment.create({
+          data: {
+            userId,
+            subscriptionPlanId: plan.id,
+            amount: plan.displayPrice,
+            currency: plan.currency.toLowerCase(),
+            status: PaymentStatus.SUCCEEDED,
+            paymentMethod,
+            description: `IAP ${plan.code} via ${dto.platform ?? 'unknown'}`,
+            metadata: {
+              source: 'mobile-client',
+              platform: dto.platform,
+              productId: dto.productId,
+            },
+            paidAt: now,
+          },
+        });
 
-      if (!existingUser) {
-        throw new BadRequestException('User not found');
+        await tx.subscriptionHistory.create({
+          data: {
+            userId,
+            subscriptionPlanId: plan.id,
+            tier: userTier,
+            status: SubscriptionStatus.ACTIVE,
+            stripePriceId: dto.productId,
+            startDate: now,
+            endDate,
+            amount: plan.displayPrice,
+            currency: plan.currency.toLowerCase(),
+            interval:
+              durationDays >= 365 ? 'year' : durationDays <= 7 ? 'week' : 'month',
+            metadata: {
+              source: 'mobile-client',
+              platform: dto.platform,
+              productId: dto.productId,
+            },
+          },
+        });
       }
 
-      return {
-        message: 'IAP transaction already recorded',
-        source: 'mobile-client-self-reported',
-        subscription: existingUser,
-        entitlement: await this.getPlanLimits(existingUser.currentSubscriptionPlanId),
-      };
-    }
-
-    const planSettings = await this.getResolvedPlanSettings();
-    //@ts-ignore - TypeScript version does not support satisfies operator
-    const mappedPlan = await this.resolvePlanFromProductId(dto.productId);
-    const planById = dto.planId
-      ? Object.values(planSettings).find((plan) => plan.id === dto.planId)
-      : undefined;
-
-    if (dto.planId && !planById) {
-      throw new BadRequestException('Invalid planId');
-    }
-    if (planById && mappedPlan && planById.id !== mappedPlan.id) {
-      throw new BadRequestException('planId does not match productId mapping');
-    }
-
-    const selectedPlan =
-      planById ??
-      mappedPlan ??
-      (planSettings.FREE ?? Object.values(planSettings)[0]);
-      Object.values(planSettings)[0];
-
-    const tier = selectedPlan.code;
-    const subscriptionPlanId = selectedPlan.id;
-        //@ts-ignore - TypeScript version does not support satisfies operator
-    const durationDays = this.resolveDurationDays(selectedPlan, dto.productId);
-    const startDate = dto.purchaseDate
-      ? this.parseIsoDate(dto.purchaseDate, 'purchaseDate')
-      : new Date();
-    const endDate = dto.expiresDate
-      ? this.parseIsoDate(dto.expiresDate, 'expiresDate')
-      : new Date(startDate.getTime() + durationDays * 86400000);
-    if (endDate.getTime() <= startDate.getTime()) {
-      throw new BadRequestException('expiresDate must be after purchaseDate');
-    }
-    const status = dto.status ?? SubscriptionStatus.ACTIVE;
-    const amount = dto.amount ?? selectedPlan.displayPrice;
-    const fallbackCurrency = selectedPlan.currency;
-    const currency = (dto.currency ?? fallbackCurrency).toLowerCase();
-        //@ts-ignore - TypeScript version does not support satisfies operatorS
-    const paymentMethod = this.paymentMethodForPlatform(dto.platform);
-    const userTier = Object.values(SubscriptionTier).includes(selectedPlan.code as SubscriptionTier)
-      ? (selectedPlan.code as SubscriptionTier)
-      : selectedPlan.displayPrice > 0
-        ? SubscriptionTier.PREMIUM
-        : SubscriptionTier.FREE;
-
-    const updatedUser = await this.prismaService.$transaction(async (tx) => {
-      await tx.payment.create({
-        data: {
-          userId,
-          subscriptionPlanId,
-          amount,
-          currency,
-          status: PaymentStatus.SUCCEEDED,
-          paymentMethod,
-          description: `IAP ${tier} purchase`,
-          metadata: {
-            source: 'mobile-client',
-            platform: dto.platform,
-            productId: dto.productId,
-            transactionId: dto.transactionId,
-            purchaseToken: dto.purchaseToken,
-            receiptData: dto.receiptData,
-            reportedStatus: dto.status,
-            purchaseDate: dto.purchaseDate,
-            expiresDate: dto.expiresDate,
-          },
-          paidAt: new Date(),
-        },
-      });
-
-      await tx.subscriptionHistory.create({
-        data: {
-          userId,
-          subscriptionPlanId,
-          tier: userTier,
-          status,
-          stripePriceId: dto.productId,
-          startDate,
-          endDate,
-          amount,
-          currency,
-          interval: durationDays >= 365 ? 'year' : 'month',
-          metadata: {
-            source: 'mobile-client',
-            platform: dto.platform,
-            productId: dto.productId,
-            transactionId: dto.transactionId,
-            purchaseToken: dto.purchaseToken,
-            receiptData: dto.receiptData,
-          },
-        },
-      });
-
-      return tx.user.update({
+      await tx.user.update({
         where: { id: userId },
         data: {
-          currentSubscriptionPlanId: subscriptionPlanId,
+          currentSubscriptionPlanId: plan.id,
           subscriptionTier: userTier,
-          subscriptionStatus: status,
-          subscriptionStartDate: startDate,
+          subscriptionStatus: SubscriptionStatus.ACTIVE,
+          subscriptionStartDate: now,
           subscriptionEndDate: endDate,
           cancelAtPeriodEnd: false,
         },
-        select: {
-          id: true,
-          currentSubscriptionPlanId: true,
-          subscriptionTier: true,
-          subscriptionStatus: true,
-          subscriptionStartDate: true,
-          subscriptionEndDate: true,
-        },
       });
     });
 
-    return {
-      message: 'IAP purchase recorded and entitlement synced',
-      source: 'mobile-client-self-reported',
-      subscription: updatedUser,
-      entitlement: await this.getPlanLimits(updatedUser.currentSubscriptionPlanId),
-    };
+    return this.buildSubscriptionResponse(userId, plan);
   }
 
-  async syncIapEntitlement(userId: string) {
+  private async downgradeToFree(userId: string) {
     const plans = await this.getResolvedPlanSettings();
+    const freePlan =
+      plans['FREE'] ??
+      Object.values(plans).find((p) => p.code === 'FREE') ??
+      Object.values(plans)[0];
+
+    await this.prismaService.user.update({
+      where: { id: userId },
+      data: {
+        currentSubscriptionPlanId: freePlan.id,
+        subscriptionTier: SubscriptionTier.FREE,
+        subscriptionStatus: SubscriptionStatus.INACTIVE,
+        subscriptionEndDate: null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+
+    return this.buildSubscriptionResponse(userId, freePlan);
+  }
+
+  private async buildSubscriptionResponse(userId: string, plan: PlanSettings) {
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        currentSubscriptionPlanId: true,
-        subscriptionStatus: true,
-        subscriptionStartDate: true,
-        subscriptionEndDate: true,
-      },
-    });
-    if (!user) throw new BadRequestException('User not found');
-
-    const now = new Date();
-    const isActive =
-      !!user.subscriptionEndDate &&
-      user.subscriptionEndDate.getTime() > now.getTime();
-
-    const status = isActive
-      ? SubscriptionStatus.ACTIVE
-      : SubscriptionStatus.INACTIVE;
-    const currentPlanId =
-      user.currentSubscriptionPlanId ?? plans.FREE?.id ?? Object.values(plans)[0].id;
-    const currentPlan =
-      Object.values(plans).find((plan) => plan.id === currentPlanId) ??
-      plans.FREE ??
-      Object.values(plans)[0];
-    const tier = currentPlan.displayPrice > 0
-      ? SubscriptionTier.PREMIUM
-      : SubscriptionTier.FREE;
-
-    const updated = await this.prismaService.user.update({
-      where: { id: userId },
-      data: {
-        currentSubscriptionPlanId: currentPlanId,
-        subscriptionStatus: status,
-        subscriptionTier: tier,
-      },
-      select: {
-        id: true,
-        currentSubscriptionPlanId: true,
         subscriptionTier: true,
         subscriptionStatus: true,
         subscriptionStartDate: true,
         subscriptionEndDate: true,
+        cancelAtPeriodEnd: true,
+        audioGeneratedThisMonth: true,
       },
     });
 
+    const [storiesThisMonth, voiceProfilesCount] =
+      await this.prismaService.$transaction([
+        this.prismaService.story.count({
+          where: { userId, createdAt: { gte: monthStart } },
+        }),
+        this.prismaService.voiceProfile.count({
+          where: { userId, isActive: true },
+        }),
+      ]);
+
     return {
-      message: 'Entitlement sync complete',
-      source: 'iap',
-      subscription: updated,
-      entitlement: await this.getPlanLimits(updated.currentSubscriptionPlanId),
+      subscription: {
+        planName: plan.displayName,
+        tier: user?.subscriptionTier,
+        status: user?.subscriptionStatus,
+        expiresAt: user?.subscriptionEndDate,
+        cancelAtPeriodEnd: user?.cancelAtPeriodEnd,
+      },
+      usage: {
+        storiesGeneratedThisMonth: storiesThisMonth,
+        voiceProfilesCount,
+        audioGeneratedThisMonth: user?.audioGeneratedThisMonth ?? 0,
+        limits: {
+          storiesPerMonth: plan.storiesPerMonth,
+          voiceProfiles: plan.voiceProfiles,
+          audioGenerationsPerMonth: plan.audioGenerationsPerMonth,
+        },
+      },
     };
   }
 

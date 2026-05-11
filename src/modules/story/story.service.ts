@@ -55,8 +55,16 @@ export const storyReadSelect = {
 
 @Injectable()
 export class StoryService {
-  private static readonly FREE_TIER_MAX_TOKENS = 900;
-  private static readonly PAID_TIER_MAX_TOKENS = 1800;
+  // Token budgets per duration × tier. Sized to fit the target word range
+  // (words × ~1.35 tokens/word) plus ~250 overhead for JSON structure.
+  private static readonly TOKEN_CAPS: Record<
+    StoryDuration,
+    { free: number; paid: number }
+  > = {
+    [StoryDuration.SHORT]:  { free: 1000, paid: 1200 },
+    [StoryDuration.MEDIUM]: { free: 1600, paid: 1800 },
+    [StoryDuration.LONG]:   { free: 2000, paid: 2600 },
+  };
 
   private readonly cache = new LRUCache<string, GeneratedStory>({
     max: 5000,
@@ -147,10 +155,9 @@ export class StoryService {
     return plan?.storiesPerMonth ?? 5;
   }
 
-  private getPerRequestTokenCap(tier: SubscriptionTier): number {
-    return tier === SubscriptionTier.FREE
-      ? StoryService.FREE_TIER_MAX_TOKENS
-      : StoryService.PAID_TIER_MAX_TOKENS;
+  private getPerRequestTokenCap(tier: SubscriptionTier, duration: StoryDuration): number {
+    const caps = StoryService.TOKEN_CAPS[duration] ?? StoryService.TOKEN_CAPS[StoryDuration.MEDIUM];
+    return tier === SubscriptionTier.FREE ? caps.free : caps.paid;
   }
 
   async generate(userId: string, dto: GenerateStoryDto) {
@@ -215,7 +222,10 @@ export class StoryService {
       customPrompt: dto.customPrompt,
     });
 
-    const maxTokens = this.getPerRequestTokenCap(user.subscriptionTier);
+    const maxTokens = this.getPerRequestTokenCap(
+      user.subscriptionTier,
+      dto.duration ?? StoryDuration.MEDIUM,
+    );
 
     const cacheKey = JSON.stringify({
       theme: resolvedTheme,

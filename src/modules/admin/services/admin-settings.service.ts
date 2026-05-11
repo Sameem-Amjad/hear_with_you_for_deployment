@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CredentialProvider } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -264,6 +264,10 @@ export class AdminSettingsService {
           updatedPlan.audioGenerationsPerMonth !== undefined
             ? Number(updatedPlan.audioGenerationsPerMonth)
             : undefined,
+        billingPeriod:
+          updatedPlan.billingPeriod !== undefined
+            ? String(updatedPlan.billingPeriod)
+            : undefined,
         storeProductIdIos:
           (updatedPlan.storeProductIds as { ios?: string } | undefined)?.ios ??
           undefined,
@@ -281,5 +285,101 @@ export class AdminSettingsService {
       message: 'Plan updated',
       plan: updatedPlan,
     };
+  }
+
+  async createSubscriptionPlan(dto: {
+    displayName: string;
+    displayPrice: number;
+    billingPeriod?: string;
+    currency?: string;
+    storiesPerMonth?: number;
+    voiceProfiles?: number;
+    audioGenerationsPerMonth?: number;
+    storeProductIds?: { ios?: string; android?: string };
+    isActive?: boolean;
+  }) {
+    const code = dto.displayName
+      .toUpperCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Z0-9_]/g, '');
+
+    const existing = await this.prismaService.subscriptionPlan.findUnique({
+      where: { code: code as any },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `A plan with the generated code "${code}" already exists. Use a different display name.`,
+      );
+    }
+
+    const plan = await this.prismaService.subscriptionPlan.create({
+      data: {
+        code: code as any,
+        displayName: dto.displayName,
+        displayPrice: dto.displayPrice,
+        currency: (dto.currency ?? 'USD').toUpperCase(),
+        billingPeriod: dto.billingPeriod ?? 'month',
+        storiesPerMonth: dto.storiesPerMonth ?? 5,
+        voiceProfiles: dto.voiceProfiles ?? 1,
+        audioGenerationsPerMonth: dto.audioGenerationsPerMonth ?? 5,
+        storeProductIdIos: dto.storeProductIds?.ios ?? '',
+        storeProductIdAndroid: dto.storeProductIds?.android ?? '',
+        isActive: dto.isActive ?? true,
+      },
+    });
+
+    return { message: 'Plan created', plan };
+  }
+
+  async updateSubscriptionPlanById(
+    id: string,
+    dto: {
+      displayName?: string;
+      displayPrice?: number;
+      billingPeriod?: string;
+      currency?: string;
+      storiesPerMonth?: number;
+      voiceProfiles?: number;
+      audioGenerationsPerMonth?: number;
+      storeProductIds?: { ios?: string; android?: string };
+      isActive?: boolean;
+    },
+  ) {
+    const existing = await this.prismaService.subscriptionPlan.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException('Subscription plan not found');
+
+    const updated = await this.prismaService.subscriptionPlan.update({
+      where: { id },
+      data: {
+        ...(dto.displayName !== undefined && { displayName: dto.displayName }),
+        ...(dto.displayPrice !== undefined && { displayPrice: Number(dto.displayPrice) }),
+        ...(dto.billingPeriod !== undefined && { billingPeriod: dto.billingPeriod }),
+        ...(dto.currency !== undefined && { currency: dto.currency.toUpperCase() }),
+        ...(dto.storiesPerMonth !== undefined && { storiesPerMonth: Number(dto.storiesPerMonth) }),
+        ...(dto.voiceProfiles !== undefined && { voiceProfiles: Number(dto.voiceProfiles) }),
+        ...(dto.audioGenerationsPerMonth !== undefined && { audioGenerationsPerMonth: Number(dto.audioGenerationsPerMonth) }),
+        ...(dto.storeProductIds?.ios !== undefined && { storeProductIdIos: dto.storeProductIds.ios }),
+        ...(dto.storeProductIds?.android !== undefined && { storeProductIdAndroid: dto.storeProductIds.android }),
+        ...(dto.isActive !== undefined && { isActive: Boolean(dto.isActive) }),
+      },
+    });
+
+    return { message: 'Plan updated', plan: updated };
+  }
+
+  async deleteSubscriptionPlan(id: string) {
+    const existing = await this.prismaService.subscriptionPlan.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException('Subscription plan not found');
+
+    await this.prismaService.subscriptionPlan.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    return { message: 'Plan deactivated' };
   }
 }

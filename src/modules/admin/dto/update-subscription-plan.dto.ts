@@ -49,6 +49,11 @@ export class UpdateSubscriptionPlanDto {
   @IsObject()
   storeProductIds?: { ios?: string; android?: string };
 
+  @ApiPropertyOptional({ enum: ['none', 'week', 'month', 'year'] })
+  @IsOptional()
+  @IsString()
+  billingPeriod?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

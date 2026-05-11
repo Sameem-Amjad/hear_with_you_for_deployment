@@ -16,8 +16,9 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import { ElevenLabsService } from '../voice-profile/elevenlabs.service';
+import { ElevenLabsService, ELEVENLABS_ERR } from '../voice-profile/elevenlabs.service';
 import { NotificationService } from '../notification/notification.service';
+import { MailService } from '../mail/mail.service';
 
 if (ffprobeStatic.path) {
   ffmpeg.setFfprobePath(ffprobeStatic.path);
@@ -32,6 +33,7 @@ export class AudioService {
     private readonly storageService: StorageService,
     private readonly elevenLabsService: ElevenLabsService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   private async getAudioDuration(url: string): Promise<number> {
@@ -283,12 +285,20 @@ export class AudioService {
         data: { audioStatus: AudioStatus.FAILED, audioError: message },
       });
 
-      const normalized = message.toLowerCase();
-      if (
-        normalized.includes('quota_exceeded') ||
-        normalized.includes('credits are required') ||
-        normalized.includes('insufficient')
-      ) {
+      if (message === ELEVENLABS_ERR.CREDITS_EXHAUSTED) {
+        void this.mailService.sendAdminAlert(
+          'ACTION REQUIRED: ElevenLabs audio credits exhausted',
+          `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <h2 style="color:#c0392b">ElevenLabs Audio Credits Exhausted</h2>
+            <p>An audio generation request failed because the ElevenLabs account has <strong>run out of credits</strong>.</p>
+            <table style="border-collapse:collapse;width:100%">
+              <tr><td style="padding:6px 12px;font-weight:bold">Time</td><td style="padding:6px 12px">${new Date().toISOString()}</td></tr>
+              <tr style="background:#f5f5f5"><td style="padding:6px 12px;font-weight:bold">User ID</td><td style="padding:6px 12px">${params.userId}</td></tr>
+              <tr><td style="padding:6px 12px;font-weight:bold">Story ID</td><td style="padding:6px 12px">${params.storyId}</td></tr>
+            </table>
+            <p style="margin-top:20px">Please <strong>top up or upgrade your ElevenLabs plan</strong> to restore audio generation.</p>
+          </div>`,
+        );
         throw new ForbiddenException(
           'ElevenLabs quota exceeded. Please top up or upgrade your ElevenLabs plan.',
         );

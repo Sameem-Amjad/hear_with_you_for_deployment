@@ -30,6 +30,7 @@ import { RangeQueryDto } from './dto/range-query.dto';
 import { AdminTemplatesQueryDto } from './dto/admin-templates-query.dto';
 import { UpdateProviderKeyDto } from './dto/update-provider-key.dto';
 import { UpdateSubscriptionPlanDto } from './dto/update-subscription-plan.dto';
+import { CreateSubscriptionPlanDto } from './dto/create-subscription-plan.dto';
 import { UpdateTemplateDto } from './dto/update-template.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UpsertTemplateDto } from './dto/upsert-template.dto';
@@ -260,6 +261,16 @@ export class AdminController {
     return this.adminService.getProviderSettings();
   }
 
+  @Get('settings/provider-credits')
+  @ApiOperation({
+    summary: 'Live credit/quota status for ElevenLabs and OpenAI',
+    description:
+      'Fetches remaining characters, voice slots, and billing info from ElevenLabs and OpenAI in real time using the stored API keys.',
+  })
+  getProviderCreditsStatus() {
+    return this.adminService.getProviderCreditsStatus();
+  }
+
   @Patch('settings/providers/:provider')
   @ApiOperation({ summary: 'Rotate provider API key' })
   updateProviderKey(
@@ -270,13 +281,34 @@ export class AdminController {
   }
 
   @Get('settings/subscription-plans')
-  @ApiOperation({ summary: 'Get configurable subscription plans' })
+  @ApiOperation({ summary: 'Get all subscription plans' })
   getSubscriptionPlans() {
     return this.adminService.getSubscriptionPlanSettings();
   }
 
+  @Post('subscription-plans')
+  @ApiOperation({ summary: 'Create a new subscription plan' })
+  createSubscriptionPlan(@Body() dto: CreateSubscriptionPlanDto) {
+    return this.adminService.createSubscriptionPlan(dto);
+  }
+
+  @Patch('subscription-plans/:id')
+  @ApiOperation({ summary: 'Update a subscription plan by ID' })
+  updateSubscriptionPlanById(
+    @Param('id') id: string,
+    @Body() dto: UpdateSubscriptionPlanDto,
+  ) {
+    return this.adminService.updateSubscriptionPlanById(id, dto);
+  }
+
+  @Delete('subscription-plans/:id')
+  @ApiOperation({ summary: 'Deactivate a subscription plan by ID' })
+  deleteSubscriptionPlan(@Param('id') id: string) {
+    return this.adminService.deleteSubscriptionPlan(id);
+  }
+
   @Patch('settings/subscription-plans/:code')
-  @ApiOperation({ summary: 'Update subscription plan settings' })
+  @ApiOperation({ summary: 'Update subscription plan by code (legacy)' })
   updateSubscriptionPlan(
     @Param('code') code: string,
     @Body() dto: UpdateSubscriptionPlanDto,

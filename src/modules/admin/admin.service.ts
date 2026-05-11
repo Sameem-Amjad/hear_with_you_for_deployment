@@ -4,6 +4,7 @@ import { AdminAuthService } from './services/admin-auth.service';
 import { AdminDashboardService } from './services/admin-dashboard.service';
 import { AdminManagementService } from './services/admin-management.service';
 import { AdminSettingsService } from './services/admin-settings.service';
+import { AdminCreditsService } from './services/admin-credits.service';
 
 @Injectable()
 export class AdminService {
@@ -12,6 +13,7 @@ export class AdminService {
     private readonly dashboardService: AdminDashboardService,
     private readonly managementService: AdminManagementService,
     private readonly settingsService: AdminSettingsService,
+    private readonly creditsService: AdminCreditsService,
   ) {}
 
   login(dto: { email: string; password: string }) {
@@ -169,19 +171,60 @@ export class AdminService {
     return this.settingsService.getSubscriptionPlanSettings();
   }
 
+  getProviderCreditsStatus() {
+    return this.creditsService.getProviderCreditsStatus();
+  }
+
   updateSubscriptionPlanSetting(
     code: string,
     dto: {
       displayName?: string;
       displayPrice?: number;
       currency?: string;
+      billingPeriod?: string;
       storiesPerMonth?: number;
       voiceProfiles?: number;
+      audioGenerationsPerMonth?: number;
       storeProductIds?: { ios?: string; android?: string };
       isActive?: boolean;
     },
   ) {
     return this.settingsService.updateSubscriptionPlanSetting(code, dto);
+  }
+
+  createSubscriptionPlan(dto: {
+    displayName: string;
+    displayPrice: number;
+    billingPeriod?: string;
+    currency?: string;
+    storiesPerMonth?: number;
+    voiceProfiles?: number;
+    audioGenerationsPerMonth?: number;
+    storeProductIds?: { ios?: string; android?: string };
+    isActive?: boolean;
+  }) {
+    return this.settingsService.createSubscriptionPlan(dto);
+  }
+
+  updateSubscriptionPlanById(
+    id: string,
+    dto: {
+      displayName?: string;
+      displayPrice?: number;
+      billingPeriod?: string;
+      currency?: string;
+      storiesPerMonth?: number;
+      voiceProfiles?: number;
+      audioGenerationsPerMonth?: number;
+      storeProductIds?: { ios?: string; android?: string };
+      isActive?: boolean;
+    },
+  ) {
+    return this.settingsService.updateSubscriptionPlanById(id, dto);
+  }
+
+  deleteSubscriptionPlan(id: string) {
+    return this.settingsService.deleteSubscriptionPlan(id);
   }
 
 }

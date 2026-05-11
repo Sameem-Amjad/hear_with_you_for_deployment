@@ -85,4 +85,21 @@ export class MailService {
       );
     }
   }
+
+  async sendAdminAlert(subject: string, html: string): Promise<void> {
+    const adminEmail = 'hello@hearwithyou.ai';
+    try {
+      await this.transporter.sendMail({
+        from: this.configService.getOrThrow<string>('EMAIL_FROM'),
+        to: adminEmail,
+        subject,
+        html,
+      });
+      this.logger.log(`Admin alert sent: ${subject}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send admin alert "${subject}": ${String(error)}`,
+      );
+    }
+  }
 }

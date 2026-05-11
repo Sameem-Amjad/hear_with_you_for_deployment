@@ -3,6 +3,11 @@ import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 import { ProviderCredentialsService } from '../provider-credentials/provider-credentials.service';
 import { CredentialProvider } from '@prisma/client';
 
+export const ELEVENLABS_ERR = {
+  VOICE_LIMIT_REACHED: 'ElevenLabs voice limit reached',
+  CREDITS_EXHAUSTED: 'ElevenLabs credits exhausted',
+} as const;
+
 type ElevenLabsAddVoiceResponse = {
   voice_id: string;
 };
@@ -25,6 +30,15 @@ export class ElevenLabsService {
     return new ElevenLabsClient({
       apiKey: async () => this.getApiKey(),
     });
+  }
+
+  private getElevenLabsErrorStatus(error: unknown): string | null {
+    try {
+      const e = error as any;
+      return e?.body?.detail?.status ?? e?.response?.data?.detail?.status ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private async streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
@@ -78,6 +92,10 @@ export class ElevenLabsService {
       }
 
       this.logger.warn(`ElevenLabs addVoice failed: ${message} details=${details}`);
+      const status = this.getElevenLabsErrorStatus(error);
+      if (status === 'voice_limit_reached') {
+        throw new Error(ELEVENLABS_ERR.VOICE_LIMIT_REACHED);
+      }
       throw new Error('ElevenLabs voice cloning failed');
     }
   }
@@ -126,6 +144,14 @@ export class ElevenLabsService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`ElevenLabs TTS failed: ${message}`);
+      const status = this.getElevenLabsErrorStatus(error);
+      if (
+        status === 'quota_exceeded' ||
+        status === 'insufficient_credits' ||
+        status === 'too_many_requests'
+      ) {
+        throw new Error(ELEVENLABS_ERR.CREDITS_EXHAUSTED);
+      }
       throw new Error(`ElevenLabs TTS failed: ${message}`);
     }
   }

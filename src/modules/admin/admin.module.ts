@@ -7,6 +7,7 @@ import { AdminAuthService } from './services/admin-auth.service';
 import { AdminDashboardService } from './services/admin-dashboard.service';
 import { AdminManagementService } from './services/admin-management.service';
 import { AdminSettingsService } from './services/admin-settings.service';
+import { AdminCreditsService } from './services/admin-credits.service';
 
 @Module({
   imports: [ProviderCredentialsModule],
@@ -18,6 +19,7 @@ import { AdminSettingsService } from './services/admin-settings.service';
     AdminDashboardService,
     AdminManagementService,
     AdminSettingsService,
+    AdminCreditsService,
   ],
 })
 export class AdminModule {}

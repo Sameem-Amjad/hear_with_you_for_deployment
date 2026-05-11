@@ -15,7 +15,7 @@ export class OpenAiService {
     const apiKey = await this.credentialsService.getProviderKey(
       CredentialProvider.OPENAI,
     );
-    return new OpenAI({ apiKey, timeout: 30_000 });
+    return new OpenAI({ apiKey, timeout: 60_000 });
   }
 
   async generateJson(params: {
@@ -25,12 +25,30 @@ export class OpenAiService {
     temperature?: number;
     maxTokens?: number;
   }): Promise<{ json: unknown; model: string; tokensUsed?: number }> {
+    return this.generateJsonAttempt(params, false);
+  }
+
+  private async generateJsonAttempt(
+    params: {
+      system: string;
+      user: string;
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+    },
+    isRetry: boolean,
+  ): Promise<{ json: unknown; model: string; tokensUsed?: number }> {
     const client = await this.client();
     const model = params.model ?? 'gpt-4o-mini';
+    // On retry, bump tokens by 50% to avoid truncation-related parse failures
+    const maxTokens = isRetry
+      ? Math.ceil((params.maxTokens ?? 1600) * 1.5)
+      : (params.maxTokens ?? 1600);
+
     const res = await client.chat.completions.create({
       model,
       temperature: params.temperature ?? 0.8,
-      max_tokens: params.maxTokens ?? 1200,
+      max_tokens: maxTokens,
       messages: [
         { role: 'system', content: params.system },
         { role: 'user', content: params.user },
@@ -42,9 +60,13 @@ export class OpenAiService {
     if (choice?.finish_reason === 'length') {
       this.logger.error(
         `OpenAI response truncated (finish_reason=length). ` +
-          `Requested max_tokens=${params.maxTokens ?? 1200}, ` +
-          `used=${res.usage?.total_tokens}. Increase the tier token cap.`,
+          `Requested max_tokens=${maxTokens}, ` +
+          `used=${res.usage?.total_tokens}.`,
       );
+      if (!isRetry) {
+        this.logger.warn(`Retrying with increased token budget…`);
+        return this.generateJsonAttempt(params, true);
+      }
       throw new Error('OpenAI response truncated — token limit too low');
     }
 
@@ -57,8 +79,12 @@ export class OpenAiService {
       };
     } catch {
       this.logger.error(
-        `OpenAI returned non-JSON (finish_reason=${choice?.finish_reason}): ${content.slice(0, 300)}`,
+        `OpenAI returned non-JSON (finish_reason=${choice?.finish_reason}, isRetry=${isRetry}): ${content.slice(0, 300)}`,
       );
+      if (!isRetry) {
+        this.logger.warn(`Retrying after parse failure…`);
+        return this.generateJsonAttempt(params, true);
+      }
       throw new Error('OpenAI response parsing failed');
     }
   }
